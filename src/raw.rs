@@ -6,6 +6,9 @@
 
 use std::{ops::Range, str::from_utf8_unchecked};
 
+const HEADER_LEN: usize = 8;
+const FIELD_LEN: usize = 16;
+
 use crate::{FieldKeyRef, FieldValueRef, data::EntryData, error::DeserializationError};
 
 pub fn serialize<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
@@ -13,8 +16,8 @@ pub fn serialize<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
     let num_fields = data.count_fields();
 
     // pre-compute how much space we need since we will do non-linear allocation
-    let header_required = 8;
-    let fields_required = 16 * num_fields;
+    let header_required = HEADER_LEN;
+    let fields_required = FIELD_LEN * num_fields;
     let data_start = header_required + fields_required;
     let str_total_len = data.entry_type().inner().len()
         + data
@@ -43,7 +46,7 @@ pub fn serialize<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
 
     // then all of the fields
     for (idx, (k, v)) in data.fields().into_iter().enumerate() {
-        let field_start = 8 + 16 * idx;
+        let field_start = HEADER_LEN + FIELD_LEN * idx;
 
         // write the field key data and the field key
         buf[field_start..field_start + 4].copy_from_slice(&(offset as u32).to_le_bytes());
@@ -75,14 +78,15 @@ impl RawEntryData {
     /// Perform validation required for memory safety.
     pub fn validate(bytes: &[u8]) -> Result<(), DeserializationError> {
         // checking header
-        let Some((&[e0, e1, e2, e3, l0, l1, l2, l3], _)) = bytes.split_first_chunk::<8>() else {
+        let Some((&[e0, e1, e2, e3, l0, l1, l2, l3], _)) = bytes.split_first_chunk::<HEADER_LEN>()
+        else {
             return Err(DeserializationError::IncompleteHeader);
         };
         let entry_type_len = u32::from_le_bytes([e0, e1, e2, e3]) as usize;
         let num_fields = u32::from_le_bytes([l0, l1, l2, l3]) as usize;
 
         // checking that there is data
-        let data_start = 8 + 16 * num_fields;
+        let data_start = HEADER_LEN + FIELD_LEN * num_fields;
         let Some(data) = bytes.get(data_start..) else {
             return Err(DeserializationError::IncompleteFields);
         };
@@ -94,12 +98,12 @@ impl RawEntryData {
         let mut kv_data_start = data_start + entry_type_len;
 
         for idx in 0..num_fields {
-            let offset = 8 + 16 * idx;
+            let offset = HEADER_LEN + FIELD_LEN * idx;
             // we already checked that these will return valid indices with the length check above
             let (&field_bytes, _) = unsafe {
                 bytes
                     .get_unchecked(offset..)
-                    .split_first_chunk::<16>()
+                    .split_first_chunk::<FIELD_LEN>()
                     .unwrap_unchecked()
             };
             let (key_idx, key_len, val_idx, val_len) = FieldAccess(field_bytes).parts();
@@ -172,19 +176,17 @@ struct RawLayout {
 }
 
 impl RawLayout {
-    const FIELDS_START: usize = 8;
-
     fn entry_type_range(&self) -> Range<usize> {
         self.data_start..self.data_start + self.entry_type_len
     }
 
     fn all_fields_range(&self) -> Range<usize> {
-        Self::FIELDS_START..self.data_start
+        HEADER_LEN..self.data_start
     }
 }
 
 #[derive(Clone, Copy)]
-struct FieldAccess([u8; 16]);
+struct FieldAccess([u8; FIELD_LEN]);
 
 impl FieldAccess {
     #[inline]
@@ -233,10 +235,10 @@ impl RawEntryData {
     #[inline]
     fn layout(&self) -> RawLayout {
         let (&[e0, e1, e2, e3, n0, n1, n2, n3], _) =
-            unsafe { self.0.split_first_chunk::<8>().unwrap_unchecked() };
+            unsafe { self.0.split_first_chunk::<HEADER_LEN>().unwrap_unchecked() };
         let entry_type_len = u32::from_le_bytes([e0, e1, e2, e3]) as usize;
         let num_fields = u32::from_le_bytes([n0, n1, n2, n3]) as usize;
-        let data_start = 8 + 16 * num_fields;
+        let data_start = HEADER_LEN + FIELD_LEN * num_fields;
         RawLayout {
             entry_type_len,
             num_fields,
@@ -245,7 +247,7 @@ impl RawEntryData {
     }
 
     #[inline]
-    fn raw_fields(&self) -> &[[u8; 16]] {
+    fn raw_fields(&self) -> &[[u8; FIELD_LEN]] {
         let ly = self.layout();
         unsafe {
             self.0
@@ -277,7 +279,7 @@ impl crate::data::EntryData for RawEntryData {
 
     fn get_field<'r>(&'r self, field_name: &str) -> Option<FieldValueRef<'r>> {
         let ly = self.layout();
-        if ly.num_fields < 8 {
+        if ly.num_fields <= 6 {
             self.fields()
                 .into_iter()
                 .find(|(k, _)| k.inner() == field_name)
