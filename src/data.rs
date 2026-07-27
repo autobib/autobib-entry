@@ -13,6 +13,13 @@ pub trait EntryData: PartialEq {
     /// Get the `entry_type` as a string slice.
     fn entry_type(&self) -> EntryTypeRef<'_>;
 
+    /// The number of fields.
+    ///
+    /// The default implementation uses `self.fields().into_iter().count()`
+    fn count_fields(&self) -> usize {
+        self.fields().into_iter().count()
+    }
+
     /// Get the value of the field.
     ///
     /// The default implementation iterates over all fields and returns the first match.
@@ -27,6 +34,11 @@ pub trait EntryData: PartialEq {
             }
         }
         None
+    }
+
+    /// Get the value of the field as a string.
+    fn get_field_str<'r>(&'r self, field_name: &str) -> Option<&'r str> {
+        self.get_field(field_name).map(|k| k.inner())
     }
 
     /// Check if the field exists.

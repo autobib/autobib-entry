@@ -1,6 +1,6 @@
 use serde_bibtex::token::{TokenError, check_balanced};
 
-use crate::error::Error;
+use crate::error::DataError;
 
 /// A validated entry type (e.g. "article" in `@article{...}`) which satisfies the following
 /// requirements:
@@ -34,7 +34,7 @@ impl Default for EntryType {
 impl EntryType {
     /// Construct a new entry type.
     #[inline]
-    pub fn try_new(mut s: String) -> Result<Self, Error> {
+    pub fn try_new(mut s: String) -> Result<Self, DataError> {
         s.make_ascii_lowercase();
 
         // Condition 1
@@ -42,7 +42,7 @@ impl EntryType {
 
         // Condition 2
         if matches!(s.as_str(), "comment" | "preamble" | "string") {
-            return Err(Error::EntryTypeReserved);
+            return Err(DataError::EntryTypeReserved);
         }
 
         Ok(Self(s))
@@ -93,7 +93,7 @@ pub struct FieldKey(pub(crate) String);
 
 impl FieldKey {
     #[inline]
-    pub fn try_new(mut s: String) -> Result<Self, Error> {
+    pub fn try_new(mut s: String) -> Result<Self, DataError> {
         s.make_ascii_lowercase();
 
         validate_ascii_identifier(s.as_bytes())?;
@@ -132,7 +132,7 @@ pub struct FieldValue(pub(crate) String);
 
 impl FieldValue {
     #[inline]
-    pub fn try_new(s: String) -> Result<Self, Error> {
+    pub fn try_new(s: String) -> Result<Self, DataError> {
         check_balanced(s.as_bytes())?;
 
         Ok(Self(s))
@@ -207,7 +207,7 @@ macro_rules! identifier_impl {
         }
 
         impl ::std::str::FromStr for $e {
-            type Err = Error;
+            type Err = DataError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 Self::try_new(s.into())
@@ -251,15 +251,15 @@ static ASCII_IDENTIFIER_ALLOWED: [bool; 256] = {
 };
 
 #[inline]
-pub fn validate_ascii_identifier(s: &[u8]) -> Result<&str, Error> {
+pub fn validate_ascii_identifier(s: &[u8]) -> Result<&str, DataError> {
     if s.is_empty() {
-        return Err(Error::Token(TokenError::Empty));
+        return Err(DataError::Token(TokenError::Empty));
     }
 
     match s.iter().find(|&b| !ASCII_IDENTIFIER_ALLOWED[*b as usize]) {
         Some(b) => match char::try_from(*b) {
-            Ok(ch) => Err(Error::Token(TokenError::InvalidChar(ch))),
-            Err(_) => Err(Error::NonAscii),
+            Ok(ch) => Err(DataError::Token(TokenError::InvalidChar(ch))),
+            Err(_) => Err(DataError::NonAscii),
         },
         // SAFETY: the only bytes permitted by ASCII_IDENTIFIER_ALLOWED are valid ASCII
         None => Ok(unsafe { std::str::from_utf8_unchecked(s) }),
