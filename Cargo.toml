@@ -11,11 +11,14 @@ keywords = ["bibtex", "biblatex", "bibliography"]
 rust-version = "1.96"
 edition = "2024"
 
+[features]
+v0 = ["dep:thiserror"]
+
 [dependencies]
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_bibtex = "0.7.1"
-thiserror = "2.0.19"
+thiserror = { version = "2.0.19", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
@@ -23,3 +26,4 @@ criterion = { version = "0.8", features = ["html_reports"] }
 [[bench]]
 name = "data"
 harness = false
+required-features = ["v0"]

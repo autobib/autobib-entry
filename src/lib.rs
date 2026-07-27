@@ -4,6 +4,8 @@ mod ident;
 mod mutable;
 mod normalize;
 mod raw;
+
+#[cfg(feature = "v0")]
 pub mod v0;
 
 pub use {
