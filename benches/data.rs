@@ -20,11 +20,22 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         data.check_and_insert(k, v).unwrap();
     }
 
+    // initialize large data
+    let mut xl_data = MutableEntryData::default();
+    for ch1 in 'a'..='z' {
+        for ch2 in '0'..='9' {
+            let k = format!("{ch1}{ch2}");
+            let v = format!("{ch1}{ch2} value");
+            xl_data.check_and_insert(k, v).unwrap();
+        }
+    }
+
     c.bench_function("rkyv serialize", |b| {
         b.iter(|| black_box(rkyv::to_bytes::<Failure>(black_box(&data)).unwrap()))
     });
 
     let rkyv_bytes = rkyv::to_bytes::<Failure>(&data).unwrap();
+    let rkyv_xl_bytes = rkyv::to_bytes::<Failure>(&xl_data).unwrap();
 
     c.bench_function("rkyv access title", |b| {
         b.iter(|| {
@@ -32,6 +43,25 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 rkyv::access::<ArchivedEntryData, Failure>(black_box(&rkyv_bytes))
                     .unwrap()
                     .get_field("title"),
+            )
+        })
+    });
+
+    c.bench_function("rkyv access large", |b| {
+        b.iter(|| {
+            black_box(
+                rkyv::access::<ArchivedEntryData, Failure>(black_box(&rkyv_xl_bytes))
+                    .unwrap()
+                    .get_field("u7"),
+            )
+        })
+    });
+
+    c.bench_function("rkyv access large unchecked", |b| {
+        b.iter(|| unsafe {
+            black_box(
+                rkyv::access_unchecked::<ArchivedEntryData>(black_box(&rkyv_xl_bytes))
+                    .get_field("u7"),
             )
         })
     });
@@ -92,6 +122,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     });
 
     let raw_bytes = serialize(&data);
+    let raw_xl_bytes = serialize(&xl_data);
 
     c.bench_function("raw access title", |b| {
         b.iter(|| {
@@ -100,6 +131,22 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                     .unwrap()
                     .get_field("title"),
             )
+        })
+    });
+
+    c.bench_function("raw access large", |b| {
+        b.iter(|| {
+            black_box(
+                RawEntryData::access(black_box(&raw_xl_bytes))
+                    .unwrap()
+                    .get_field("u7"),
+            )
+        })
+    });
+
+    c.bench_function("raw access large unchecked", |b| {
+        b.iter(|| unsafe {
+            black_box(RawEntryData::access_unchecked(black_box(&raw_xl_bytes)).get_field("u7"))
         })
     });
 
@@ -152,6 +199,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     });
 
     let legacy_bytes = v0::serialize(&data);
+    let legacy_xl_bytes = v0::serialize(&xl_data);
 
     c.bench_function("legacy access title", |b| {
         b.iter(|| {
@@ -159,6 +207,24 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 v0::LegacyEntryData::access(black_box(&legacy_bytes))
                     .unwrap()
                     .get_field("title"),
+            )
+        })
+    });
+
+    c.bench_function("legacy access large", |b| {
+        b.iter(|| {
+            black_box(
+                v0::LegacyEntryData::access(black_box(&legacy_xl_bytes))
+                    .unwrap()
+                    .get_field("u7"),
+            )
+        })
+    });
+
+    c.bench_function("legacy access large unchecked", |b| {
+        b.iter(|| unsafe {
+            black_box(
+                v0::LegacyEntryData::access_unchecked(black_box(&legacy_xl_bytes)).get_field("u7"),
             )
         })
     });
