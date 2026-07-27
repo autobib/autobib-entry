@@ -1,10 +1,17 @@
 [package]
 name = "autobib-entry"
 version = "0.1.0"
+authors = ["Alex Rutar <alex@rutar.org>", "Peiran Wu"]
+description = "Entry data backend for the Autobib CLI"
+repository = "https://github.com/autobib/autobib-entry"
+homepage = "https://github.com/autobib/autobib-entry"
+license = "AGPL-3.0-or-later"
+readme = "README.md"
+keywords = ["bibtex", "biblatex", "bibliography"]
+rust-version = "1.96"
 edition = "2024"
 
 [dependencies]
-delegate = "0.13.5"
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_bibtex = "0.7.1"

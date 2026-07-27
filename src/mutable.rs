@@ -1,4 +1,9 @@
-use std::{borrow::Borrow, collections::BTreeMap, str::FromStr, sync::LazyLock};
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, btree_map},
+    str::FromStr,
+    sync::LazyLock,
+};
 
 use serde::de::Error;
 
@@ -61,25 +66,49 @@ impl MutableEntryData {
         new
     }
 
-    delegate::delegate! {
-        to self.fields {
-            pub fn len(&self) -> usize;
-            pub fn is_empty(&self) -> bool;
-            pub fn get<Q>(&self, key: &Q) -> Option<&FieldValue>
-                where FieldKey: Borrow<Q>,
-                      Q: Ord + ?Sized;
-            pub fn keys(&self) -> std::collections::btree_map::Keys<'_, FieldKey, FieldValue>;
-            pub fn values(&self) -> std::collections::btree_map::Values<'_, FieldKey, FieldValue>;
-            pub fn insert(&mut self, key: FieldKey, value: FieldValue) -> Option<FieldValue>;
-            pub fn contains_key<Q>(&self, key: &Q) -> bool
-            where
-                FieldKey: Borrow<Q>,
-                Q: Ord + ?Sized;
-            pub fn remove<Q>(&mut self, key: &Q) -> Option<FieldValue>
-            where
-                FieldKey: Borrow<Q>,
-                Q: Ord + ?Sized;
-        }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.fields.len()
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.fields.is_empty()
+    }
+    #[inline]
+    pub fn get<Q>(&self, key: &Q) -> Option<&FieldValue>
+    where
+        FieldKey: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.fields.get::<Q>(key)
+    }
+    #[inline]
+    pub fn keys(&self) -> btree_map::Keys<'_, FieldKey, FieldValue> {
+        self.fields.keys()
+    }
+    #[inline]
+    pub fn values(&self) -> btree_map::Values<'_, FieldKey, FieldValue> {
+        self.fields.values()
+    }
+    #[inline]
+    pub fn insert(&mut self, key: FieldKey, value: FieldValue) -> Option<FieldValue> {
+        self.fields.insert(key, value)
+    }
+    #[inline]
+    pub fn contains_key<Q>(&self, key: &Q) -> bool
+    where
+        FieldKey: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.fields.contains_key::<Q>(key)
+    }
+    #[inline]
+    pub fn remove<Q>(&mut self, key: &Q) -> Option<FieldValue>
+    where
+        FieldKey: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.fields.remove::<Q>(key)
     }
 }
 
