@@ -1,3 +1,6 @@
+mod deserialize;
+
+use serde::Serialize;
 use serde_bibtex::token::{TokenError, check_balanced};
 
 use crate::error::DataError;
@@ -8,9 +11,8 @@ use crate::error::DataError;
 /// 1. composed only of ASCII printable characters with `{}(),= \t\n\\#%\"` and
 ///    `A..=Z` removed.
 /// 2. is not one of `comment`, `preamble`, or `string` (case-insensitive)
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct EntryType(pub(crate) String);
-
 impl Default for EntryType {
     fn default() -> Self {
         Self("misc".into())
@@ -60,7 +62,7 @@ impl EntryType {
 ///
 /// 1. composed only of ASCII printable characters with `{}(),= \t\n\\#%\"` and
 ///    `A..=Z` removed.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct FieldKey(pub(crate) String);
 
 impl FieldKey {
@@ -85,7 +87,7 @@ impl From<FieldKey> for FieldValue {
 /// following requirements:
 ///
 /// 1. satisfies the balanced `{}` rule (from [`serde_bibtex::token::is_balanced`]).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct FieldValue(pub(crate) String);
 
 impl FieldValue {
@@ -99,7 +101,7 @@ impl FieldValue {
 
 macro_rules! identifier_impl {
     ($e:ident, $r:ident) => {
-        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, Clone, Copy)]
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Clone, Copy)]
         pub struct $r<'r>(pub(crate) &'r str);
 
         impl From<$r<'_>> for $e {
