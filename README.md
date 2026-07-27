@@ -12,11 +12,13 @@ It also has the benefit of being fixed and transparently documented.
 The memory layout of the data is as follows:
 ```text
 <- HEADER                -> | <- FIELDS                          -> | <- DATA                 -> |
-entry_type_len | num_fields | (key_idx, key_len, val_idx, val_len)* | entry_type.. keys.. vals.. |
-u32            | u32        | (u32, u32, u32, u32)*                 |
+meta | entry_type_len | num_fields | (key_idx, key_len, val_idx, val_len)* | entry_type.. keys.. vals.. |
+u64  | u32            | u32        | (u32, u32, u32, u32)*                 |
 ```
 Brief explanation:
 
+- `meta` is a metadata block, currently set as little-endian bytes to `[1 0 0 0 0 0 0 0]`.
+  This distinguishes from the old data format used by Autobib which sets the first byte equal to `0`.
 - `entry_type_len` is the length of the `entry_type` (`article`, `book`, etc.).
 - `num_fields` is the number of fields (`key = {value}` pairs).
 - The `FIELDS` block contains the metadata for the fields.
@@ -28,5 +30,8 @@ Brief explanation:
   Autobib uses a SQLite database as the backend, which has even stricter rules on the size of data stored within the database.
 - All `u32` values are stored in little-endian order.
 
-The fields are sorted by key.
-This means that specific `key = {value}` pairs can be found efficiently using [`binary_search_by_key`](https://doc.rust-lang.org/std/primitive.slice.html#method.binary_search_by_key).
+Benefits of the layout:
+- The fields are sorted by key.
+  This means that specific `key = {value}` pairs can be found efficiently using [`binary_search_by_key`](https://doc.rust-lang.org/std/primitive.slice.html#method.binary_search_by_key).
+- The `DATA` block is a continuous utf8-string when valid.
+  This improves initial validation, since we can check utf8 validity in a single step, rather than check validity for each key and value individually (which can be substantially slower).

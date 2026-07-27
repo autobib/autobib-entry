@@ -1,12 +1,12 @@
 // # Memory layout
 //
-// <- HEADER                -> | <- FIELDS                          -> | <- DATA                 -> |
-// entry_type_len | num_fields | (key_idx, key_len, val_idx, val_len)* | entry_type.. keys.. vals.. |
-// u32            | u32        | (u32, u32, u32, u32)*                 |
+// <- HEADER                         -> | <- FIELDS                          -> | <- DATA                 -> |
+// meta | et_len | num_fields | (key_idx, key_len, val_idx, val_len)* | entry_type.. keys.. vals.. |
+// u64  | u32        | u32    | (u32, u32, u32, u32)*                 | u8*
 
 use std::{ops::Range, str::from_utf8_unchecked};
 
-const HEADER_LEN: usize = 8;
+const HEADER_LEN: usize = 16;
 const FIELD_LEN: usize = 16;
 
 use crate::{FieldKeyRef, FieldValueRef, data::EntryData, error::DeserializationError};
@@ -36,8 +36,9 @@ pub fn serialize<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
     let mut buf: Box<[u8]> = vec![0; raw_data_len].into_boxed_slice();
 
     // HEADER
-    buf[0..4].copy_from_slice(&(entry_type_bytes.len() as u32).to_le_bytes());
-    buf[4..8].copy_from_slice(&(data.count_fields() as u32).to_le_bytes());
+    buf[0] = 1; // recall other values are zeroed
+    buf[8..12].copy_from_slice(&(entry_type_bytes.len() as u32).to_le_bytes());
+    buf[12..16].copy_from_slice(&(data.count_fields() as u32).to_le_bytes());
 
     // first, the entry data
     let mut offset = data_start;
@@ -78,7 +79,8 @@ impl RawEntryData {
     /// Perform validation required for memory safety.
     pub fn validate(bytes: &[u8]) -> Result<(), DeserializationError> {
         // checking header
-        let Some((&[e0, e1, e2, e3, l0, l1, l2, l3], _)) = bytes.split_first_chunk::<HEADER_LEN>()
+        let Some((&[1, 0, 0, 0, 0, 0, 0, 0, e0, e1, e2, e3, l0, l1, l2, l3], _)) =
+            bytes.split_first_chunk::<HEADER_LEN>()
         else {
             return Err(DeserializationError::IncompleteHeader);
         };
@@ -234,8 +236,12 @@ impl FieldAccess {
 impl RawEntryData {
     #[inline]
     fn layout(&self) -> RawLayout {
-        let (&[e0, e1, e2, e3, n0, n1, n2, n3], _) =
-            unsafe { self.0.split_first_chunk::<HEADER_LEN>().unwrap_unchecked() };
+        let &[e0, e1, e2, e3, n0, n1, n2, n3] = unsafe {
+            self.0
+                .get_unchecked(8..16)
+                .as_array::<8>()
+                .unwrap_unchecked()
+        };
         let entry_type_len = u32::from_le_bytes([e0, e1, e2, e3]) as usize;
         let num_fields = u32::from_le_bytes([n0, n1, n2, n3]) as usize;
         let data_start = HEADER_LEN + FIELD_LEN * num_fields;
@@ -377,12 +383,13 @@ mod tests {
         assert_eq!(
             serialized.as_bytes(),
             [
+                1, 0, 0, 0, 0, 0, 0, 0, // meta
                 4, 0, 0, 0, // entry length 4
                 4, 0, 0, 0, // 4 fields
-                76, 0, 0, 0, 6, 0, 0, 0, 82, 0, 0, 0, 10, 0, 0, 0, // field 1
-                92, 0, 0, 0, 7, 0, 0, 0, 99, 0, 0, 0, 23, 0, 0, 0, // field 2
-                122, 0, 0, 0, 5, 0, 0, 0, 127, 0, 0, 0, 17, 0, 0, 0, // field 3
-                144, 0, 0, 0, 4, 0, 0, 0, 148, 0, 0, 0, 4, 0, 0, 0, // field 4
+                84, 0, 0, 0, 6, 0, 0, 0, 90, 0, 0, 0, 10, 0, 0, 0, // field 1
+                100, 0, 0, 0, 7, 0, 0, 0, 107, 0, 0, 0, 23, 0, 0, 0, // field 2
+                130, 0, 0, 0, 5, 0, 0, 0, 135, 0, 0, 0, 17, 0, 0, 0, // field 3
+                152, 0, 0, 0, 4, 0, 0, 0, 156, 0, 0, 0, 4, 0, 0, 0, // field 4
                 b'm', b'i', b's', b'c', // entry type
                 b'a', b'u', b't', b'h', b'o', b'r', // key 1
                 b'A', b'l', b'e', b'x', b' ', b'R', b'u', b't', b'a', b'r', // val 1
@@ -404,7 +411,10 @@ mod tests {
         assert_eq!(
             serialized.as_bytes(),
             [
-                7, 0, 0, 0, 0, 0, 0, 0, b'a', b'r', b't', b'i', b'c', b'l', b'e'
+                1, 0, 0, 0, 0, 0, 0, 0, // meta
+                7, 0, 0, 0, // entry length 7
+                0, 0, 0, 0, // 0 fields
+                b'a', b'r', b't', b'i', b'c', b'l', b'e'
             ]
         );
     }
