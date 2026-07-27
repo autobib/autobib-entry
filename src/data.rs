@@ -50,24 +50,24 @@ pub trait EntryData: PartialEq {
 }
 
 /// A wrapper for an [`EntryData`] implementation which implements [`Serialize`].
-pub struct EntryDataSerializer<D> {
-    data: D,
+pub struct EntryDataSerializer<'a, D: ?Sized> {
+    data: &'a D,
 }
 
-impl<D: EntryData> EntryDataSerializer<D> {
-    pub fn new(data: D) -> Self {
+impl<'a, D: EntryData + ?Sized> EntryDataSerializer<'a, D> {
+    pub fn new(data: &'a D) -> Self {
         Self { data }
     }
 }
 
-impl<D: EntryData> Serialize for EntryDataSerializer<D> {
+impl<'a, D: EntryData + ?Sized> Serialize for EntryDataSerializer<'a, D> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        struct FieldsWrapper<'a, D>(&'a D);
+        struct FieldsWrapper<'a, D: ?Sized>(&'a D);
 
-        impl<'a, D: EntryData> Serialize for FieldsWrapper<'a, D> {
+        impl<'a, D: EntryData + ?Sized> Serialize for FieldsWrapper<'a, D> {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where
                 S: Serializer,
@@ -82,7 +82,7 @@ impl<D: EntryData> Serialize for EntryDataSerializer<D> {
 
         let mut state = serializer.serialize_struct("EntryData", 2)?;
         state.serialize_field("entry_type", &self.data.entry_type())?;
-        state.serialize_field("fields", &FieldsWrapper(&self.data))?;
+        state.serialize_field("fields", &FieldsWrapper(self.data))?;
         state.end()
     }
 }

@@ -8,6 +8,61 @@ use std::{ops::Range, str::from_utf8_unchecked};
 
 use crate::{FieldKeyRef, FieldValueRef, data::EntryData, error::DeserializationError};
 
+pub fn serialize<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
+    let entry_type_bytes = data.entry_type().inner().as_bytes();
+    let num_fields = data.count_fields();
+
+    // pre-compute how much space we need since we will do non-linear allocation
+    let header_required = 8;
+    let fields_required = 16 * num_fields;
+    let data_start = header_required + fields_required;
+    let str_total_len = data.entry_type().inner().len()
+        + data
+            .fields()
+            .into_iter()
+            .map(|(k, v)| k.inner().len() + v.inner().len())
+            .sum::<usize>();
+
+    let raw_data_len = data_start + str_total_len;
+    assert!(
+        raw_data_len < u32::MAX as usize,
+        "Cannot write raw data exceeding 2^32 bytes!"
+    );
+
+    // initialize as zeroed; we will write non-sequentially
+    let mut buf: Box<[u8]> = vec![0; raw_data_len].into_boxed_slice();
+
+    // HEADER
+    buf[0..4].copy_from_slice(&(entry_type_bytes.len() as u32).to_le_bytes());
+    buf[4..8].copy_from_slice(&(data.count_fields() as u32).to_le_bytes());
+
+    // first, the entry data
+    let mut offset = data_start;
+    buf[offset..offset + entry_type_bytes.len()].copy_from_slice(entry_type_bytes);
+    offset = data_start + entry_type_bytes.len();
+
+    // then all of the fields
+    for (idx, (k, v)) in data.fields().into_iter().enumerate() {
+        let field_start = 8 + 16 * idx;
+
+        // write the field key data and the field key
+        buf[field_start..field_start + 4].copy_from_slice(&(offset as u32).to_le_bytes());
+        buf[field_start + 4..field_start + 8]
+            .copy_from_slice(&(k.inner().len() as u32).to_le_bytes());
+        buf[offset..offset + k.inner().len()].copy_from_slice(k.inner().as_bytes());
+        offset = offset + k.inner().len();
+
+        // write the field value data and the field value
+        buf[field_start + 8..field_start + 12].copy_from_slice(&(offset as u32).to_le_bytes());
+        buf[field_start + 12..field_start + 16]
+            .copy_from_slice(&(v.inner().len() as u32).to_le_bytes());
+        buf[offset..offset + v.inner().len()].copy_from_slice(v.inner().as_bytes());
+        offset = offset + v.inner().len();
+    }
+
+    buf
+}
+
 #[derive(PartialEq)]
 #[repr(transparent)]
 pub struct RawEntryData([u8]);
@@ -95,59 +150,8 @@ impl RawEntryData {
         unsafe { std::mem::transmute(b) }
     }
 
-    pub fn serialize<D: EntryData>(data: &D) -> Box<RawEntryData> {
-        let entry_type_bytes = data.entry_type().inner().as_bytes();
-        let num_fields = data.count_fields();
-
-        // pre-compute how much space we need since we will do non-linear allocation
-        let header_required = 8;
-        let fields_required = 16 * num_fields;
-        let data_start = header_required + fields_required;
-        let str_total_len = data.entry_type().inner().len()
-            + data
-                .fields()
-                .into_iter()
-                .map(|(k, v)| k.inner().len() + v.inner().len())
-                .sum::<usize>();
-
-        let raw_data_len = data_start + str_total_len;
-        assert!(
-            raw_data_len < u32::MAX as usize,
-            "Cannot write raw data exceeding 2^32 bytes!"
-        );
-
-        // initialize as zeroed; we will write non-sequentially
-        let mut buf: Box<[u8]> = vec![0; raw_data_len].into_boxed_slice();
-
-        // HEADER
-        buf[0..4].copy_from_slice(&(entry_type_bytes.len() as u32).to_le_bytes());
-        buf[4..8].copy_from_slice(&(data.count_fields() as u32).to_le_bytes());
-
-        // first, the entry data
-        let mut offset = data_start;
-        buf[offset..offset + entry_type_bytes.len()].copy_from_slice(entry_type_bytes);
-        offset = data_start + entry_type_bytes.len();
-
-        // then all of the fields
-        for (idx, (k, v)) in data.fields().into_iter().enumerate() {
-            let field_start = 8 + 16 * idx;
-
-            // write the field key data and the field key
-            buf[field_start..field_start + 4].copy_from_slice(&(offset as u32).to_le_bytes());
-            buf[field_start + 4..field_start + 8]
-                .copy_from_slice(&(k.inner().len() as u32).to_le_bytes());
-            buf[offset..offset + k.inner().len()].copy_from_slice(k.inner().as_bytes());
-            offset = offset + k.inner().len();
-
-            // write the field value data and the field value
-            buf[field_start + 8..field_start + 12].copy_from_slice(&(offset as u32).to_le_bytes());
-            buf[field_start + 12..field_start + 16]
-                .copy_from_slice(&(v.inner().len() as u32).to_le_bytes());
-            buf[offset..offset + v.inner().len()].copy_from_slice(v.inner().as_bytes());
-            offset = offset + v.inner().len();
-        }
-
-        unsafe { RawEntryData::load_unchecked(buf) }
+    pub fn from_entry_data<D: EntryData + ?Sized>(data: &D) -> Box<RawEntryData> {
+        unsafe { RawEntryData::load_unchecked(serialize(data)) }
     }
 }
 
@@ -289,7 +293,7 @@ mod tests {
             data.check_and_insert(k, v).unwrap();
         }
 
-        let serialized = RawEntryData::serialize(&data);
+        let serialized = RawEntryData::from_entry_data(&data);
         assert!(RawEntryData::validate(serialized.as_bytes()).is_ok());
         assert_eq!(
             serialized.as_bytes(),
@@ -316,7 +320,7 @@ mod tests {
 
         let data = MutableEntryData::try_new("article").unwrap();
 
-        let serialized = RawEntryData::serialize(&data);
+        let serialized = RawEntryData::from_entry_data(&data);
         assert!(RawEntryData::validate(serialized.as_bytes()).is_ok());
         assert_eq!(
             serialized.as_bytes(),
@@ -341,7 +345,7 @@ mod tests {
             data.check_and_insert(k, v).unwrap();
         }
 
-        let serialized = RawEntryData::serialize(&data);
+        let serialized = RawEntryData::from_entry_data(&data);
         assert_eq!(serialized.count_fields(), fields.len());
         for (k, v) in fields {
             assert_eq!(serialized.get_field_str(k), Some(v));

@@ -2,6 +2,7 @@ use std::{fmt, str::Utf8Error};
 
 use serde_bibtex::token::TokenError;
 
+#[derive(Debug, PartialEq)]
 pub enum DeserializationError {
     IncompleteHeader,
     IncompleteFields,
@@ -32,6 +33,8 @@ impl fmt::Display for DeserializationError {
         }
     }
 }
+
+impl std::error::Error for DeserializationError {}
 
 #[derive(Debug, PartialEq)]
 pub enum DataError {

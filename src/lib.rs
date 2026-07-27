@@ -7,9 +7,11 @@ mod raw;
 
 pub use {
     data::{EntryData, EntryDataSerializer},
-    error::DataError,
+    error::{DataError, DeserializationError},
     ident::{EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef},
     mutable::MutableEntryData,
     normalize::{Normalization, Normalize},
-    raw::RawEntryData,
+    raw::{RawEntryData, serialize},
 };
+
+pub use mutable::ArchivedEntryData;

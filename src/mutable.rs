@@ -80,7 +80,7 @@ impl MutableEntryData {
         Ok(())
     }
 
-    pub fn from_entry_data<D: EntryData>(cont: &D) -> Self {
+    pub fn from_entry_data<D: EntryData + ?Sized>(cont: &D) -> Self {
         let mut new = Self::new(cont.entry_type().into());
         for (key, value) in cont.fields() {
             new.fields.insert(key.into(), value.into());
@@ -328,7 +328,7 @@ impl MutableEntryData {
     /// This method is very similar to `merge_or_overwrite`, but also updates the entry type and is
     /// slightly more optimized since it blindly overwrites existing entries, instead of checking
     /// that they are different.
-    pub fn update_from<D: EntryData>(&mut self, data: &D) {
+    pub fn update_from<D: EntryData + ?Sized>(&mut self, data: &D) {
         self.entry_type.0.clear();
         self.entry_type.0.push_str(data.entry_type().inner());
 
@@ -350,7 +350,7 @@ impl MutableEntryData {
     /// The callback `resolve_conflict` takes three arguments in the following order:
     /// the key, the existing value in `self` corresponding to the key, and the new value.
     pub fn merge_with_callback<
-        D: EntryData,
+        D: EntryData + ?Sized,
         T: FnOnce(EntryTypeRef<'_>, EntryTypeRef<'_>) -> ConflictResolved<EntryType>,
         F: FnMut(FieldKeyRef<'_>, FieldValueRef<'_>, FieldValueRef<'_>) -> ConflictResolved,
     >(
@@ -396,7 +396,7 @@ impl MutableEntryData {
 
     /// Merge data from `other`, ignoring fields that already exist in `self`.
     #[inline]
-    pub fn merge_or_skip<D: EntryData>(&mut self, other: &D) {
+    pub fn merge_or_skip<D: EntryData + ?Sized>(&mut self, other: &D) {
         self.merge_with_callback(
             other,
             |_, _| ConflictResolved::Current,
@@ -406,7 +406,7 @@ impl MutableEntryData {
 
     /// Merge data from `other`, overwriting fields that already exist in `self`.
     #[inline]
-    pub fn merge_or_overwrite<D: EntryData>(&mut self, other: &D) {
+    pub fn merge_or_overwrite<D: EntryData + ?Sized>(&mut self, other: &D) {
         self.merge_with_callback(
             other,
             |_, _| ConflictResolved::Incoming,
