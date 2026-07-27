@@ -1,0 +1,12 @@
+[package]
+name = "autobib-entry"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+delegate = "0.13.5"
+regex = "1.13.1"
+rkyv = "0.8.17"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_bibtex = "0.7.1"
+serde_json = "1.0.151"
