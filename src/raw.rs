@@ -50,14 +50,14 @@ pub fn serialize<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
         buf[field_start + 4..field_start + 8]
             .copy_from_slice(&(k.inner().len() as u32).to_le_bytes());
         buf[offset..offset + k.inner().len()].copy_from_slice(k.inner().as_bytes());
-        offset = offset + k.inner().len();
+        offset += k.inner().len();
 
         // write the field value data and the field value
         buf[field_start + 8..field_start + 12].copy_from_slice(&(offset as u32).to_le_bytes());
         buf[field_start + 12..field_start + 16]
             .copy_from_slice(&(v.inner().len() as u32).to_le_bytes());
         buf[offset..offset + v.inner().len()].copy_from_slice(v.inner().as_bytes());
-        offset = offset + v.inner().len();
+        offset += v.inner().len();
     }
 
     buf
@@ -137,15 +137,25 @@ impl RawEntryData {
         unsafe { Ok(Self::load_unchecked(bytes)) }
     }
 
+    /// # Safety
+    ///
+    /// The buffer bytes must be in the format as specified in the module-level documentation. This
+    /// is guaranteed if [`Self::validate`] returns Ok, or if the buffer was originally produced by
+    /// [`serialize`] or [`Self::as_bytes`].
     pub unsafe fn load_unchecked(buf: Box<[u8]>) -> Box<Self> {
         unsafe { Box::from_raw(Box::into_raw(buf) as *mut RawEntryData) }
     }
 
     pub fn access(bytes: &[u8]) -> Result<&Self, DeserializationError> {
-        Self::validate(&bytes)?;
+        Self::validate(bytes)?;
         unsafe { Ok(Self::access_unchecked(bytes)) }
     }
 
+    /// # Safety
+    ///
+    /// The buffer bytes must be in the format as specified in the module-level documentation. This
+    /// is guaranteed if [`Self::validate`] returns Ok, or if the buffer was originally produced by
+    /// [`serialize`] or [`Self::as_bytes`].
     pub unsafe fn access_unchecked(b: &[u8]) -> &Self {
         unsafe { std::mem::transmute(b) }
     }

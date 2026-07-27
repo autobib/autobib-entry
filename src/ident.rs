@@ -257,7 +257,7 @@ pub fn validate_ascii_identifier(s: &[u8]) -> Result<&str, DataError> {
     }
 
     match s.iter().find(|&b| !ASCII_IDENTIFIER_ALLOWED[*b as usize]) {
-        Some(b) => match char::try_from(*b) {
+        Some(b) => match char::try_from(*b as u32) {
             Ok(ch) => Err(DataError::Token(TokenError::InvalidChar(ch))),
             Err(_) => Err(DataError::NonAscii),
         },
