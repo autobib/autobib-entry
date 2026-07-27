@@ -8,21 +8,7 @@ use crate::error::DataError;
 /// 1. composed only of ASCII printable characters with `{}(),= \t\n\\#%\"` and
 ///    `A..=Z` removed.
 /// 2. is not one of `comment`, `preamble`, or `string` (case-insensitive)
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    rkyv::Archive,
-    rkyv::Deserialize,
-    rkyv::Serialize,
-    serde::Deserialize,
-    serde::Serialize,
-)]
-#[rkyv(derive(Debug, PartialEq, Eq, PartialOrd, Ord))]
-#[repr(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize)]
 pub struct EntryType(pub(crate) String);
 
 impl Default for EntryType {
@@ -74,21 +60,7 @@ impl EntryType {
 ///
 /// 1. composed only of ASCII printable characters with `{}(),= \t\n\\#%\"` and
 ///    `A..=Z` removed.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    rkyv::Archive,
-    rkyv::Deserialize,
-    rkyv::Serialize,
-    serde::Deserialize,
-    serde::Serialize,
-)]
-#[rkyv(derive(Debug, PartialEq, Eq, PartialOrd, Ord))]
-#[repr(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize)]
 pub struct FieldKey(pub(crate) String);
 
 impl FieldKey {
@@ -113,21 +85,7 @@ impl From<FieldKey> for FieldValue {
 /// following requirements:
 ///
 /// 1. satisfies the balanced `{}` rule (from [`serde_bibtex::token::is_balanced`]).
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    rkyv::Archive,
-    rkyv::Deserialize,
-    rkyv::Serialize,
-    serde::Deserialize,
-    serde::Serialize,
-)]
-#[rkyv(derive(Debug, PartialEq, Eq, PartialOrd, Ord))]
-#[repr(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize)]
 pub struct FieldValue(pub(crate) String);
 
 impl FieldValue {
@@ -140,13 +98,7 @@ impl FieldValue {
 }
 
 macro_rules! identifier_impl {
-    ($e:ident, $r:ident, $a:ident) => {
-        impl ::std::borrow::Borrow<str> for $a {
-            fn borrow(&self) -> &str {
-                self.0.as_str()
-            }
-        }
-
+    ($e:ident, $r:ident) => {
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, Clone, Copy)]
         pub struct $r<'r>(pub(crate) &'r str);
 
@@ -165,12 +117,6 @@ macro_rules! identifier_impl {
         impl $e {
             pub fn ref_inner(&self) -> $r<'_> {
                 $r(&self.0)
-            }
-        }
-
-        impl $a {
-            pub fn ref_inner(&self) -> $r<'_> {
-                $r(&self.0.as_str())
             }
         }
 
@@ -216,9 +162,9 @@ macro_rules! identifier_impl {
     };
 }
 
-identifier_impl!(EntryType, EntryTypeRef, ArchivedEntryType);
-identifier_impl!(FieldKey, FieldKeyRef, ArchivedFieldKey);
-identifier_impl!(FieldValue, FieldValueRef, ArchivedFieldValue);
+identifier_impl!(EntryType, EntryTypeRef);
+identifier_impl!(FieldKey, FieldKeyRef);
+identifier_impl!(FieldValue, FieldValueRef);
 
 /// Lookup table for bytes which could appear in an ASCII entry key or field key.
 /// This is precisely the ASCII printable characters with `{}(),= \t\n\\#%\"` and

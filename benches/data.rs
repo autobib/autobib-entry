@@ -1,7 +1,6 @@
 use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use rkyv::rancor::Failure;
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     use autobib_entry::*;
@@ -29,93 +28,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             xl_data.check_and_insert(k, v).unwrap();
         }
     }
-
-    c.bench_function("rkyv serialize", |b| {
-        b.iter(|| black_box(rkyv::to_bytes::<Failure>(black_box(&data)).unwrap()))
-    });
-
-    let rkyv_bytes = rkyv::to_bytes::<Failure>(&data).unwrap();
-    let rkyv_xl_bytes = rkyv::to_bytes::<Failure>(&xl_data).unwrap();
-
-    c.bench_function("rkyv access title", |b| {
-        b.iter(|| {
-            black_box(
-                rkyv::access::<ArchivedEntryData, Failure>(black_box(&rkyv_bytes))
-                    .unwrap()
-                    .get_field("title"),
-            )
-        })
-    });
-
-    c.bench_function("rkyv access large", |b| {
-        b.iter(|| {
-            black_box(
-                rkyv::access::<ArchivedEntryData, Failure>(black_box(&rkyv_xl_bytes))
-                    .unwrap()
-                    .get_field("u7"),
-            )
-        })
-    });
-
-    c.bench_function("rkyv access large unchecked", |b| {
-        b.iter(|| unsafe {
-            black_box(
-                rkyv::access_unchecked::<ArchivedEntryData>(black_box(&rkyv_xl_bytes))
-                    .get_field("u7"),
-            )
-        })
-    });
-
-    c.bench_function("rkyv access all", |b| {
-        b.iter(|| {
-            for (k, v) in rkyv::access::<ArchivedEntryData, Failure>(black_box(&rkyv_bytes))
-                .unwrap()
-                .fields()
-            {
-                black_box((k, v));
-            }
-        })
-    });
-
-    c.bench_function("rkyv access unchecked", |b| {
-        b.iter(|| {
-            black_box(unsafe {
-                rkyv::access_unchecked::<ArchivedEntryData>(black_box(&rkyv_bytes))
-                    .get_field("author")
-            })
-        })
-    });
-
-    c.bench_function("rkyv missing", |b| {
-        b.iter(|| {
-            black_box(
-                rkyv::access::<ArchivedEntryData, Failure>(black_box(&rkyv_bytes))
-                    .unwrap()
-                    .contains_field("missing"),
-            )
-        })
-    });
-
-    c.bench_function("rkyv missing unchecked", |b| {
-        b.iter(|| {
-            black_box(unsafe {
-                rkyv::access_unchecked::<ArchivedEntryData>(black_box(&rkyv_bytes))
-                    .contains_field("missing")
-            })
-        })
-    });
-
-    c.bench_function("rkyv deserialize", |b| {
-        b.iter(|| {
-            let archived =
-                rkyv::access::<ArchivedEntryData, Failure>(black_box(&rkyv_bytes[..])).unwrap();
-            black_box(
-                rkyv::deserialize::<MutableEntryData, Failure>(archived)
-                    .unwrap()
-                    .get_field("title"),
-            );
-        })
-    });
 
     c.bench_function("raw serialize", |b| {
         b.iter(|| black_box(serialize(black_box(&data))))

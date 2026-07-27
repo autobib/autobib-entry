@@ -14,5 +14,3 @@ pub use {
     normalize::{Normalization, Normalize},
     raw::{RawEntryData, serialize},
 };
-
-pub use mutable::ArchivedEntryData;

@@ -11,8 +11,7 @@ use crate::{
 };
 
 /// An [`EntryData`] implementation which supports addition and deletion of fields.
-#[derive(Debug, PartialEq, Eq, rkyv::Archive, rkyv::Deserialize, rkyv::Serialize)]
-#[rkyv(derive(Debug, PartialEq, Eq), archived = ArchivedEntryData)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct MutableEntryData {
     pub(crate) entry_type: EntryType,
     pub(crate) fields: BTreeMap<FieldKey, FieldValue>,
@@ -21,32 +20,6 @@ pub struct MutableEntryData {
 impl Default for MutableEntryData {
     fn default() -> Self {
         Self::new(EntryType::default())
-    }
-}
-
-impl EntryData for ArchivedEntryData {
-    fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)> {
-        self.fields
-            .iter()
-            .map(|(k, v)| (k.ref_inner(), v.ref_inner()))
-    }
-
-    fn entry_type(&self) -> EntryTypeRef<'_> {
-        self.entry_type.ref_inner()
-    }
-
-    fn get_field<'r>(&'r self, field_name: &str) -> Option<FieldValueRef<'r>> {
-        self.fields
-            .get_key_value(field_name)
-            .map(|(_, v)| v.ref_inner())
-    }
-
-    fn contains_field(&self, field_name: &str) -> bool {
-        self.fields.contains_key(field_name)
-    }
-
-    fn count_fields(&self) -> usize {
-        self.fields.len()
     }
 }
 
