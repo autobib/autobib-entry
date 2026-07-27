@@ -276,12 +276,20 @@ impl crate::data::EntryData for RawEntryData {
     }
 
     fn get_field<'r>(&'r self, field_name: &str) -> Option<FieldValueRef<'r>> {
-        let rf = self.raw_fields();
-        rf.binary_search_by_key(&field_name, |&chunk| {
-            FieldAccess(chunk).access_in(&self.0).0.inner()
-        })
-        .ok()
-        .map(|idx| unsafe { FieldAccess(*rf.get_unchecked(idx)).access_in(&self.0).1 })
+        let ly = self.layout();
+        if ly.num_fields < 8 {
+            self.fields()
+                .into_iter()
+                .find(|(k, _)| k.inner() == field_name)
+                .map(|(_, v)| v)
+        } else {
+            let rf = self.raw_fields();
+            rf.binary_search_by_key(&field_name, |&chunk| {
+                FieldAccess(chunk).access_in(&self.0).0.inner()
+            })
+            .ok()
+            .map(|idx| unsafe { FieldAccess(*rf.get_unchecked(idx)).access_in(&self.0).1 })
+        }
     }
 }
 

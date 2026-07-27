@@ -20,13 +20,13 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         data.check_and_insert(k, v).unwrap();
     }
 
-    c.bench_function("serialize rkyv", |b| {
+    c.bench_function("rkyv serialize", |b| {
         b.iter(|| black_box(rkyv::to_bytes::<Failure>(black_box(&data)).unwrap()))
     });
 
     let rkyv_bytes = rkyv::to_bytes::<Failure>(&data).unwrap();
 
-    c.bench_function("access rkyv", |b| {
+    c.bench_function("rkyv access title", |b| {
         b.iter(|| {
             black_box(
                 rkyv::access::<ArchivedEntryData, Failure>(black_box(&rkyv_bytes))
@@ -36,7 +36,46 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("deserialize rkyv", |b| {
+    c.bench_function("rkyv access all", |b| {
+        b.iter(|| {
+            for (k, v) in rkyv::access::<ArchivedEntryData, Failure>(black_box(&rkyv_bytes))
+                .unwrap()
+                .fields()
+            {
+                black_box((k, v));
+            }
+        })
+    });
+
+    c.bench_function("rkyv access unchecked", |b| {
+        b.iter(|| {
+            black_box(unsafe {
+                rkyv::access_unchecked::<ArchivedEntryData>(black_box(&rkyv_bytes))
+                    .get_field("author")
+            })
+        })
+    });
+
+    c.bench_function("rkyv missing", |b| {
+        b.iter(|| {
+            black_box(
+                rkyv::access::<ArchivedEntryData, Failure>(black_box(&rkyv_bytes))
+                    .unwrap()
+                    .contains_field("missing"),
+            )
+        })
+    });
+
+    c.bench_function("rkyv missing unchecked", |b| {
+        b.iter(|| {
+            black_box(unsafe {
+                rkyv::access_unchecked::<ArchivedEntryData>(black_box(&rkyv_bytes))
+                    .contains_field("missing")
+            })
+        })
+    });
+
+    c.bench_function("rkyv deserialize", |b| {
         b.iter(|| {
             let archived =
                 rkyv::access::<ArchivedEntryData, Failure>(black_box(&rkyv_bytes[..])).unwrap();
@@ -48,13 +87,13 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("serialize raw", |b| {
+    c.bench_function("raw serialize", |b| {
         b.iter(|| black_box(serialize(black_box(&data))))
     });
 
     let raw_bytes = serialize(&data);
 
-    c.bench_function("access raw", |b| {
+    c.bench_function("raw access title", |b| {
         b.iter(|| {
             black_box(
                 RawEntryData::access(black_box(&raw_bytes))
@@ -64,7 +103,44 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("deserialize raw", |b| {
+    c.bench_function("raw access all", |b| {
+        b.iter(|| {
+            for (k, v) in RawEntryData::access(black_box(&raw_bytes))
+                .unwrap()
+                .fields()
+            {
+                black_box((k, v));
+            }
+        })
+    });
+
+    c.bench_function("raw access unchecked", |b| {
+        b.iter(|| {
+            black_box(unsafe {
+                RawEntryData::access_unchecked(black_box(&raw_bytes)).contains_field("author")
+            })
+        })
+    });
+
+    c.bench_function("raw missing", |b| {
+        b.iter(|| {
+            black_box(
+                RawEntryData::access(black_box(&raw_bytes))
+                    .unwrap()
+                    .contains_field("missing"),
+            )
+        })
+    });
+
+    c.bench_function("raw missing unchecked", |b| {
+        b.iter(|| {
+            black_box(unsafe {
+                RawEntryData::access_unchecked(black_box(&raw_bytes)).contains_field("missing")
+            })
+        })
+    });
+
+    c.bench_function("raw deserialize", |b| {
         b.iter(|| {
             let raw = RawEntryData::access(black_box(&raw_bytes)).unwrap();
             black_box(MutableEntryData::from_entry_data(raw).get_field("title"));
