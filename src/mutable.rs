@@ -13,8 +13,8 @@ use crate::{
 /// An [`EntryData`] implementation which supports addition and deletion of fields.
 #[derive(Debug, PartialEq, Eq)]
 pub struct MutableEntryData {
-    pub(crate) entry_type: EntryType,
-    pub(crate) fields: BTreeMap<FieldKey, FieldValue>,
+    entry_type: EntryType,
+    fields: BTreeMap<FieldKey, FieldValue>,
 }
 
 impl Default for MutableEntryData {
