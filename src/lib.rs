@@ -1,10 +1,10 @@
 mod data;
 mod error;
 mod ident;
-mod legacy;
 mod mutable;
 mod normalize;
 mod raw;
+pub mod v0;
 
 pub use {
     data::{EntryData, EntryDataSerializer},

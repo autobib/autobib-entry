@@ -146,6 +146,68 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             black_box(MutableEntryData::from_entry_data(raw).get_field("title"));
         })
     });
+
+    c.bench_function("legacy serialize", |b| {
+        b.iter(|| black_box(v0::serialize(black_box(&data))))
+    });
+
+    let legacy_bytes = v0::serialize(&data);
+
+    c.bench_function("legacy access title", |b| {
+        b.iter(|| {
+            black_box(
+                v0::LegacyEntryData::access(black_box(&legacy_bytes))
+                    .unwrap()
+                    .get_field("title"),
+            )
+        })
+    });
+
+    c.bench_function("legacy access all", |b| {
+        b.iter(|| {
+            for (k, v) in v0::LegacyEntryData::access(black_box(&legacy_bytes))
+                .unwrap()
+                .fields()
+            {
+                black_box((k, v));
+            }
+        })
+    });
+
+    c.bench_function("legacy access unchecked", |b| {
+        b.iter(|| {
+            black_box(unsafe {
+                v0::LegacyEntryData::access_unchecked(black_box(&legacy_bytes))
+                    .contains_field("author")
+            })
+        })
+    });
+
+    c.bench_function("legacy missing", |b| {
+        b.iter(|| {
+            black_box(
+                v0::LegacyEntryData::access(black_box(&legacy_bytes))
+                    .unwrap()
+                    .contains_field("missing"),
+            )
+        })
+    });
+
+    c.bench_function("legacy missing unchecked", |b| {
+        b.iter(|| {
+            black_box(unsafe {
+                v0::LegacyEntryData::access_unchecked(black_box(&legacy_bytes))
+                    .contains_field("missing")
+            })
+        })
+    });
+
+    c.bench_function("legacy deserialize", |b| {
+        b.iter(|| {
+            let legacy = v0::LegacyEntryData::access(black_box(&legacy_bytes)).unwrap();
+            black_box(MutableEntryData::from_entry_data(legacy).get_field("title"));
+        })
+    });
 }
 
 criterion_group!(benches, criterion_benchmark);

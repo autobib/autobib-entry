@@ -257,7 +257,7 @@ impl RawEntryData {
     }
 }
 
-impl crate::data::EntryData for RawEntryData {
+impl EntryData for RawEntryData {
     fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)> {
         let rf = self.raw_fields();
         rf.iter()
@@ -298,6 +298,65 @@ impl crate::data::EntryData for RawEntryData {
 #[cfg(test)]
 mod tests {
     use crate::*;
+
+    #[test]
+    fn basic() {
+        let mut data = MutableEntryData::default();
+        let fields = [
+            ("author", "Alex Rutar"),
+            ("journal", "Journal of Great Papers"),
+            ("month", "Dec"),
+            ("title", "A wonderful title"),
+            ("year", "2036"),
+        ];
+
+        for (k, v) in fields {
+            data.check_and_insert(k, v).unwrap();
+        }
+
+        let serialized = RawEntryData::from_entry_data(&data);
+        assert_eq!(serialized.count_fields(), fields.len());
+        for (k, v) in fields {
+            assert_eq!(serialized.get_field_str(k), Some(v));
+        }
+        for ((k, v), (ser_k, ser_v)) in fields.iter().zip(serialized.fields()) {
+            assert_eq!(k, &ser_k.inner());
+            assert_eq!(v, &ser_v.inner());
+        }
+    }
+
+    #[test]
+    fn round_trip() {
+        let mut record_data = MutableEntryData::try_new("article").unwrap();
+        let fields = [
+            ("year", "2024"),
+            ("title", "A title"),
+            ("field", ""),
+            ("weird", "🍄"),
+            (&"a".repeat(255), &"b".repeat(65_535)),
+        ];
+
+        for (k, v) in fields {
+            record_data.check_and_insert(k, v).unwrap();
+        }
+
+        let raw_data = RawEntryData::from_entry_data(&record_data);
+
+        let mut record_data_clone =
+            MutableEntryData::try_new(raw_data.entry_type().inner()).unwrap();
+
+        for (key, value) in raw_data.fields() {
+            record_data_clone
+                .check_and_insert(key.inner(), value.inner())
+                .unwrap();
+        }
+
+        assert_eq!(record_data, record_data_clone);
+        assert_eq!(
+            raw_data.as_bytes(),
+            RawEntryData::from_entry_data(&record_data_clone).as_bytes()
+        );
+    }
 
     #[test]
     fn format_consistency() {
@@ -348,31 +407,5 @@ mod tests {
                 7, 0, 0, 0, 0, 0, 0, 0, b'a', b'r', b't', b'i', b'c', b'l', b'e'
             ]
         );
-    }
-
-    #[test]
-    fn basic() {
-        let mut data = MutableEntryData::default();
-        let fields = [
-            ("author", "Alex Rutar"),
-            ("journal", "Journal of Great Papers"),
-            ("month", "Dec"),
-            ("title", "A wonderful title"),
-            ("year", "2036"),
-        ];
-
-        for (k, v) in fields {
-            data.check_and_insert(k, v).unwrap();
-        }
-
-        let serialized = RawEntryData::from_entry_data(&data);
-        assert_eq!(serialized.count_fields(), fields.len());
-        for (k, v) in fields {
-            assert_eq!(serialized.get_field_str(k), Some(v));
-        }
-        for ((k, v), (ser_k, ser_v)) in fields.iter().zip(serialized.fields()) {
-            assert_eq!(k, &ser_k.inner());
-            assert_eq!(v, &ser_v.inner());
-        }
     }
 }
