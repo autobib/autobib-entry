@@ -1,4 +1,4 @@
-use std::str::from_utf8;
+use std::str::{from_utf8, from_utf8_unchecked};
 
 use crate::ident::validate_ascii_identifier;
 use crate::{EntryData, EntryTypeRef, FieldKeyRef, FieldValueRef};
@@ -205,13 +205,15 @@ impl LegacyEntryData {
     /// Split into the `TYPE` and `DATA` blocks, discarding the header.
     #[inline]
     fn split_blocks(&self) -> (&[u8], &[u8]) {
-        let contents = &self.0[DATA_HEADER_SIZE..];
-        contents.split_at(contents[0] as usize + 1)
+        unsafe {
+            let contents = self.0.get_unchecked(DATA_HEADER_SIZE..);
+            contents.split_at_unchecked(*contents.get_unchecked(0) as usize + 1)
+        }
     }
 }
 
-/// The iterator type for the fields of a [`RawEntryData`]. This cannot be constructed directly;
-/// it is constructed implicitly by the [`EntryData::fields`] implementation of [`RawEntryData`].
+/// The iterator type for the fields of a [`LegacyEntryData`]. This cannot be constructed directly;
+/// it is constructed implicitly by the [`EntryData::fields`] implementation of [`LegacyEntryData`].
 #[derive(Debug, Clone)]
 pub struct LegacyFieldsIter<'a> {
     remaining: &'a [u8],
@@ -226,19 +228,29 @@ impl<'a> Iterator for LegacyFieldsIter<'a> {
     /// Panics if the underlying data is malformed.
     fn next(&mut self) -> Option<Self::Item> {
         if !self.remaining.is_empty() {
-            let key_len = self.remaining[0] as usize;
-            let value_len = u16::from_le_bytes([self.remaining[1], self.remaining[2]]) as usize;
-            let tail = &self.remaining[3..];
+            let key_len = unsafe { *self.remaining.get_unchecked(0) as usize };
+            let value_len = unsafe {
+                u16::from_le_bytes(
+                    *self
+                        .remaining
+                        .get_unchecked(1..3)
+                        .as_array::<2>()
+                        .unwrap_unchecked(),
+                ) as usize
+            };
+            let tail = unsafe { self.remaining.get_unchecked(3..) };
 
-            let (key, tail) = tail.split_at(key_len);
-            let (value, tail) = tail.split_at(value_len);
+            let (key, tail) = unsafe { tail.split_at_unchecked(key_len) };
+            let (value, tail) = unsafe { tail.split_at_unchecked(value_len) };
 
             self.remaining = tail;
 
-            Some((
-                FieldKeyRef(from_utf8(key).unwrap()),
-                FieldValueRef(from_utf8(value).unwrap()),
-            ))
+            unsafe {
+                Some((
+                    FieldKeyRef(from_utf8_unchecked(key)),
+                    FieldValueRef(from_utf8_unchecked(value)),
+                ))
+            }
         } else {
             None
         }
@@ -262,7 +274,7 @@ impl EntryData for LegacyEntryData {
 
     fn entry_type(&self) -> EntryTypeRef<'_> {
         let (type_block, _) = self.split_blocks();
-        EntryTypeRef(from_utf8(&type_block[1..]).unwrap())
+        unsafe { EntryTypeRef(from_utf8_unchecked(type_block.get_unchecked(1..))) }
     }
 }
 
@@ -309,4 +321,164 @@ pub enum RecordDataError {
 
     #[error("Invalid bytes: `{0}`")]
     InvalidBytes(#[from] InvalidBytesError),
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::*;
+
+    /// Check that conversion into the raw form and back results in identical data.
+    #[test]
+    fn test_data_round_trip() {
+        let mut record_data = MutableEntryData::try_new("article").unwrap();
+        record_data.check_and_insert("year", "2024").unwrap();
+        record_data.check_and_insert("title", "A title").unwrap();
+        record_data.check_and_insert("field", "").unwrap();
+        record_data.check_and_insert("a".repeat(255), "🍄").unwrap();
+        record_data
+            .check_and_insert("a", "b".repeat(65_535))
+            .unwrap();
+
+        let raw_data = LegacyEntryData::from_entry_data(&record_data);
+
+        let mut record_data_clone =
+            MutableEntryData::try_new(raw_data.entry_type().inner()).unwrap();
+
+        for (key, value) in raw_data.fields() {
+            record_data_clone
+                .check_and_insert(key.inner(), value.inner())
+                .unwrap();
+        }
+
+        assert_eq!(record_data, record_data_clone);
+        assert_eq!(
+            raw_data.as_bytes(),
+            LegacyEntryData::from_entry_data(&record_data_clone).as_bytes()
+        );
+    }
+
+    #[test]
+    fn test_round_trip() {
+        fn check(keys: &[(&'static str, &'static str)]) {
+            let mut data = MutableEntryData::default();
+            for (k, v) in keys {
+                data.check_and_insert(*k, *v).unwrap();
+            }
+            assert_eq!(data.fields().into_iter().count(), keys.len());
+
+            let raw_data = LegacyEntryData::from_entry_data(&data);
+            assert_eq!(raw_data.fields().into_iter().count(), keys.len());
+
+            let new_data = MutableEntryData::from_entry_data(raw_data.as_ref());
+            assert_eq!(new_data.fields().into_iter().count(), keys.len());
+
+            for (k, v) in keys {
+                assert_eq!(raw_data.get_field_str(k), Some(*v));
+                assert_eq!(data.get_field_str(k), Some(*v));
+                assert_eq!(new_data.get_field_str(k), Some(*v));
+            }
+        }
+        check(&[("a", "A"), ("b", "B")]);
+        check(&[("a", "A"), ("c", ""), ("b", "C")]);
+        check(&[]);
+        check(&[("b", "a")]);
+    }
+
+    #[test]
+    fn test_format_manual() {
+        let mut record_data = MutableEntryData::try_new("article").unwrap();
+        record_data.check_and_insert("year", "2023").unwrap();
+        record_data.check_and_insert("title", "The Title").unwrap();
+
+        let data = LegacyEntryData::from_entry_data(&record_data);
+        let expected = vec![
+            0, 7, b'a', b'r', b't', b'i', b'c', b'l', b'e', 5, 9, 0, b't', b'i', b't', b'l', b'e',
+            b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e', b'a', b'r',
+            b'2', b'0', b'2', b'3',
+        ];
+
+        assert_eq!(expected, data.as_bytes());
+    }
+
+    #[test]
+    fn test_validate_data_ok() {
+        for data in [
+            // usual example
+            vec![
+                0, 7, b'a', b'r', b't', b'i', b'c', b'l', b'e', 5, 9, 0, b't', b'i', b't', b'l',
+                b'e', b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e',
+                b'a', b'r', b'2', b'0', b'2', b'3',
+            ],
+            // no keys is OK
+            vec![0, 7, b'a', b'r', b't', b'i', b'c', b'l', b'e'],
+            // field value can have length 0
+            vec![0, 1, b'a', 1, 0, 0, b'b'],
+            // usual example
+            vec![
+                0, 7, b'a', b'r', b't', b'i', b'c', b'l', b'e', 5, 9, 0, b't', b'i', b't', b'l',
+                b'e', b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e',
+                b'a', b'r', b'2', b'0', b'2', b'3',
+            ],
+        ] {
+            assert!(LegacyEntryData::access(&data).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_validate_data_err() {
+        // invalid version
+        let malformed_data = vec![
+            2, 7, b'a', b'r', b't', b'i', b'c', b'l', b'e', 5, 9, 0, b't', b'i', b't', b'l', b'e',
+            b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e', b'a', b'r',
+            b'2', b'0', b'2', b'3',
+        ];
+        let parsed = LegacyEntryData::access(&malformed_data);
+        assert!(matches!(
+            parsed,
+            Err(InvalidBytesError {
+                position: 0,
+                message: "invalid version"
+            })
+        ));
+
+        // entry type is not valid utf-8
+        let malformed_data = vec![
+            0, 7, b'a', b'r', b't', 255, b'c', b'l', b'e', 5, 9, 0, b't', b'i', b't', b'l', b'e',
+            b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e', b'a', b'r',
+            b'2', b'0', b'2', b'3',
+        ];
+        let parsed = LegacyEntryData::access(&malformed_data);
+        assert!(matches!(parsed, Err(InvalidBytesError { position: 2, .. })));
+
+        // bad length header
+        let malformed_data = vec![
+            0, 7, b'a', b'r', b't', b'i', b'c', b'l', b'e', 5, 100, 0, b't', b'i', b't', b'l',
+            b'e', b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e', b'a',
+            b'r', b'2', b'0', b'2', b'3',
+        ];
+        let parsed = LegacyEntryData::access(&malformed_data);
+        assert!(matches!(
+            parsed,
+            Err(InvalidBytesError {
+                position: 17,
+                message: "value block shorter than header"
+            })
+        ));
+
+        // trailing bytes
+        let malformed_data = vec![0, 7, b'a', b'r', b't', b'i', b'c', b'l', b'e', 1];
+        let parsed = LegacyEntryData::access(&malformed_data);
+        assert!(parsed.is_err());
+
+        // entry type cannot have length 0
+        let malformed_data = vec![0, 0];
+        let parsed = LegacyEntryData::access(&malformed_data);
+        assert!(parsed.is_err());
+
+        // field key cannot have length 0
+        let malformed_data = vec![0, 1, b'a', 0, 0, 0];
+        let parsed = LegacyEntryData::access(&malformed_data);
+        assert!(parsed.is_err());
+    }
 }
