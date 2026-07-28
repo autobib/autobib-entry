@@ -1,16 +1,23 @@
-// # Memory layout
+// # Zero-copy deserialization format
 //
-// <- HEADER                         -> | <- FIELDS                          -> | <- DATA                 -> |
-// meta | et_len | num_fields | (key_idx, key_len, val_idx, val_len)* | entry_type.. keys.. vals.. |
-// u64  | u32        | u32    | (u32, u32, u32, u32)*                 | u8*
+// ## Memory format
+//
+// ```text
+// | <- HEADER                       -> | <- FIELDS                          -> | <- DATA                 -> |
+// | meta | entry_type_len | num_fields | (key_idx, key_len, val_idx, val_len)* | entry_type.. keys.. vals.. |
+// | u64  | u32            | u32        | [u32, u32, u32, u32]*                 | str                        |
+// ```
 
 use std::{ops::Range, str::from_utf8_unchecked};
 
 const HEADER_LEN: usize = 16;
 const FIELD_LEN: usize = 16;
 
-use crate::{FieldKeyRef, FieldValueRef, data::EntryData, error::DeserializationError};
+use crate::{FieldKeyRef, FieldValueRef, data::EntryData, error::AccessError};
 
+/// Serialize the provided entry data as a raw byte buffer.
+///
+/// See [`RawEntryData::from_entry_data`] for the typed variant of this function.
 pub fn serialize<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
     let entry_type_bytes = data.entry_type().inner().as_bytes();
     let num_fields = data.count_fields();
@@ -67,22 +74,26 @@ pub fn serialize<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
     buf
 }
 
+/// Entry data formatted as a raw byte buffer.
+///
+/// This is a typed wrapper around a `[u8]` and is in particular unsized.
 #[derive(PartialEq)]
 #[repr(transparent)]
 pub struct RawEntryData([u8]);
 
 impl RawEntryData {
+    /// Obtain the underlying bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
-    /// Perform validation required for memory safety.
-    pub fn validate(bytes: &[u8]) -> Result<(), DeserializationError> {
+    /// Check that raw bytes are in the memory format defined in the module level documentation.
+    pub fn validate(bytes: &[u8]) -> Result<(), AccessError> {
         // checking header
         let Some((&[1, 0, 0, 0, 0, 0, 0, 0, e0, e1, e2, e3, l0, l1, l2, l3], _)) =
             bytes.split_first_chunk::<HEADER_LEN>()
         else {
-            return Err(DeserializationError::IncompleteHeader);
+            return Err(AccessError::InvalidHeader);
         };
         let entry_type_len = u32::from_le_bytes([e0, e1, e2, e3]) as usize;
         let num_fields = u32::from_le_bytes([l0, l1, l2, l3]) as usize;
@@ -90,7 +101,7 @@ impl RawEntryData {
         // checking that there is data
         let data_start = HEADER_LEN + FIELD_LEN * num_fields;
         let Some(data) = bytes.get(data_start..) else {
-            return Err(DeserializationError::IncompleteFields);
+            return Err(AccessError::IncompleteFields);
         };
 
         // checking string data is valid utf8
@@ -112,19 +123,19 @@ impl RawEntryData {
 
             // check that the indices are contiguous and correspond to valid char boundaries
             if kv_data_start != key_idx {
-                return Err(DeserializationError::InvalidIndex(idx));
+                return Err(AccessError::InvalidIndex(idx));
             }
 
             if kv_data_start + key_len != val_idx {
-                return Err(DeserializationError::InvalidIndex(idx));
+                return Err(AccessError::InvalidIndex(idx));
             }
 
             if !data_str.is_char_boundary(key_idx - data_start) {
-                return Err(DeserializationError::InvalidStrOffset(idx));
+                return Err(AccessError::InvalidStrOffset(idx));
             }
 
             if !data_str.is_char_boundary(val_idx - data_start) {
-                return Err(DeserializationError::InvalidStrOffset(idx));
+                return Err(AccessError::InvalidStrOffset(idx));
             }
 
             kv_data_start = kv_data_start + key_len + val_len;
@@ -132,45 +143,59 @@ impl RawEntryData {
 
         // we should end at bytes
         if kv_data_start != bytes.len() {
-            return Err(DeserializationError::TrailingBytes(kv_data_start));
+            return Err(AccessError::TrailingBytes(kv_data_start));
         }
 
         Ok(())
     }
 
-    pub fn load(bytes: Box<[u8]>) -> Result<Box<Self>, DeserializationError> {
+    /// Load the provided byte buffer, first checking that the underlying bytes are valid.
+    pub fn load(bytes: Box<[u8]>) -> Result<Box<Self>, AccessError> {
         Self::validate(&bytes)?;
         unsafe { Ok(Self::load_unchecked(bytes)) }
     }
 
+    /// Load the provided byte buffer without checking that the underlying bytes are valid.
+    ///
     /// # Safety
     ///
-    /// The buffer bytes must be in the format as specified in the module-level documentation. This
-    /// is guaranteed if [`Self::validate`] returns Ok, or if the buffer was originally produced by
-    /// [`serialize`] or [`Self::as_bytes`].
+    /// If the underlying bytes are not valid according to the format specified in the module-level
+    /// documentation, this is undefined behaviour. The format is guaranteed to be correct if:
+    ///
+    /// - [`Self::validate`] returns ok.
+    /// - The bytes were produced by a call to [`serialize`] or [`Self::as_bytes]`.
     pub unsafe fn load_unchecked(buf: Box<[u8]>) -> Box<Self> {
         unsafe { Box::from_raw(Box::into_raw(buf) as *mut RawEntryData) }
     }
 
-    pub fn access(bytes: &[u8]) -> Result<&Self, DeserializationError> {
+    /// Access data from the provided byte buffer without any copying or deserialization, first
+    /// checking that the underlying bytes are valid.
+    pub fn access(bytes: &[u8]) -> Result<&Self, AccessError> {
         Self::validate(bytes)?;
         unsafe { Ok(Self::access_unchecked(bytes)) }
     }
 
+    /// Access data from the provided byte buffer without any copying or deserialization, without
+    /// checking that the underlying bytes are valid.
+    ///
     /// # Safety
     ///
-    /// The buffer bytes must be in the format as specified in the module-level documentation. This
-    /// is guaranteed if [`Self::validate`] returns Ok, or if the buffer was originally produced by
-    /// [`serialize`] or [`Self::as_bytes`].
+    /// If the underlying bytes are not valid according to the format specified in the module-level
+    /// documentation, this is undefined behaviour. The format is guaranteed to be correct if:
+    ///
+    /// - [`Self::validate`] returns ok.
+    /// - The bytes were produced by a call to [`serialize`] or [`Self::as_bytes]`.
     pub unsafe fn access_unchecked(b: &[u8]) -> &Self {
         unsafe { std::mem::transmute(b) }
     }
 
+    /// Construct the byte representation from any entry data implementation.
     pub fn from_entry_data<D: EntryData + ?Sized>(data: &D) -> Box<RawEntryData> {
         unsafe { RawEntryData::load_unchecked(serialize(data)) }
     }
 }
 
+/// Layout data for the byte buffer, as read from the header.
 struct RawLayout {
     entry_type_len: usize,
     num_fields: usize,
@@ -178,19 +203,26 @@ struct RawLayout {
 }
 
 impl RawLayout {
+    /// Get the range in the data buffer corresponding to the entry type.
+    #[inline]
     fn entry_type_range(&self) -> Range<usize> {
         self.data_start..self.data_start + self.entry_type_len
     }
 
+    /// Get the subslice corresponding to the field metadata.
+    #[inline]
     fn all_fields_range(&self) -> Range<usize> {
         HEADER_LEN..self.data_start
     }
 }
 
-#[derive(Clone, Copy)]
+/// An accessor for a single field.
+#[derive(Debug, Clone, Copy)]
 struct FieldAccess([u8; FIELD_LEN]);
 
 impl FieldAccess {
+    /// Split the field into its constituent `usize` parts: `key_idx`, `key_len`, `val_id`, and
+    /// `val_len`.
     #[inline]
     fn parts(self) -> (usize, usize, usize, usize) {
         let [
@@ -219,8 +251,13 @@ impl FieldAccess {
         )
     }
 
+    /// Access the contents of this field in the data buffer.
+    ///
+    /// # Safety
+    ///
+    /// The data buffer must be valid for the field from which this struct was constructed.
     #[inline]
-    fn access_in<'r>(self, data: &'r [u8]) -> (FieldKeyRef<'r>, FieldValueRef<'r>) {
+    unsafe fn access_in<'r>(self, data: &'r [u8]) -> (FieldKeyRef<'r>, FieldValueRef<'r>) {
         let (key_idx, key_len, val_idx, val_len) = self.parts();
         unsafe {
             let key_raw = data.get_unchecked(key_idx..key_idx + key_len);
@@ -234,6 +271,7 @@ impl FieldAccess {
 }
 
 impl RawEntryData {
+    /// Obtain the layout from the header.
     #[inline]
     fn layout(&self) -> RawLayout {
         let &[e0, e1, e2, e3, n0, n1, n2, n3] = unsafe {
@@ -252,6 +290,7 @@ impl RawEntryData {
         }
     }
 
+    /// Obtain the field metadata as a slice of `Field`s.
     #[inline]
     fn raw_fields(&self) -> &[[u8; FIELD_LEN]] {
         let ly = self.layout();
@@ -266,8 +305,10 @@ impl RawEntryData {
 impl EntryData for RawEntryData {
     fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)> {
         let rf = self.raw_fields();
-        rf.iter()
-            .map(|chunk| FieldAccess(*chunk).access_in(&self.0))
+        unsafe {
+            rf.iter()
+                .map(|chunk| FieldAccess(*chunk).access_in(&self.0))
+        }
     }
 
     fn entry_type(&self) -> crate::EntryTypeRef<'_> {
@@ -292,18 +333,20 @@ impl EntryData for RawEntryData {
                 .map(|(_, v)| v)
         } else {
             let rf = self.raw_fields();
-            rf.binary_search_by_key(&field_name, |&chunk| {
-                FieldAccess(chunk).access_in(&self.0).0.inner()
-            })
-            .ok()
-            .map(|idx| unsafe { FieldAccess(*rf.get_unchecked(idx)).access_in(&self.0).1 })
+            unsafe {
+                rf.binary_search_by_key(&field_name, |&chunk| {
+                    FieldAccess(chunk).access_in(&self.0).0.inner()
+                })
+                .ok()
+                .map(|idx| FieldAccess(*rf.get_unchecked(idx)).access_in(&self.0).1)
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
+    use crate::data::*;
 
     #[test]
     fn basic() {

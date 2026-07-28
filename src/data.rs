@@ -1,3 +1,6 @@
+mod mutable;
+mod raw;
+
 use serde::{
     Serialize, Serializer,
     ser::{SerializeMap, SerializeStruct},
@@ -5,22 +8,25 @@ use serde::{
 
 use crate::ident::{EntryTypeRef, FieldKeyRef, FieldValueRef};
 
+pub use mutable::MutableEntryData;
+pub use raw::{serialize, RawEntryData};
+
 /// This trait represents types which encapsulate the data content of a single BibTeX entry.
 pub trait EntryData: PartialEq {
     /// Iterate over `(key, value)` pairs in order.
     fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)>;
 
-    /// Get the `entry_type` as a string slice.
+    /// Get the entry type.
     fn entry_type(&self) -> EntryTypeRef<'_>;
 
-    /// The number of fields.
+    /// Count the number of fields.
     ///
     /// The default implementation uses `self.fields().into_iter().count()`
     fn count_fields(&self) -> usize {
         self.fields().into_iter().count()
     }
 
-    /// Get the value of the field.
+    /// Get the value of a given field.
     ///
     /// The default implementation iterates over all fields and returns the first match.
     fn get_field<'r>(&'r self, field_name: &str) -> Option<FieldValueRef<'r>> {
@@ -41,7 +47,7 @@ pub trait EntryData: PartialEq {
         self.get_field(field_name).map(|k| k.inner())
     }
 
-    /// Check if the field exists.
+    /// Check if a given field exists.
     ///
     /// The default implementation checks that `get_field` returns `Some(_)`.
     fn contains_field(&self, field_name: &str) -> bool {
@@ -55,6 +61,7 @@ pub struct EntryDataSerializer<'a, D: ?Sized> {
 }
 
 impl<'a, D: EntryData + ?Sized> EntryDataSerializer<'a, D> {
+    /// Wrap an entry data implementation.
     pub fn new(data: &'a D) -> Self {
         Self { data }
     }

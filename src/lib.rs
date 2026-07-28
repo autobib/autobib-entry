@@ -1,18 +1,13 @@
-mod data;
-mod error;
+pub mod data;
+pub mod error;
 mod ident;
-mod mutable;
 mod normalize;
-mod raw;
 
 #[cfg(feature = "v0")]
 pub mod v0;
 
 pub use {
-    data::{EntryData, EntryDataSerializer},
-    error::{DataError, DeserializationError},
+    error::{DataError, AccessError},
     ident::{EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef},
-    mutable::MutableEntryData,
     normalize::{Normalization, Normalize},
-    raw::{RawEntryData, serialize},
 };

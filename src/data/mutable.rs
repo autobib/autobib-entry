@@ -15,7 +15,7 @@ use crate::{
     normalize::{Normalize, normalize_whitespace_str},
 };
 
-/// An [`EntryData`] implementation which supports addition and deletion of fields.
+/// An [`EntryData`] implementation which supports performant addition and deletion of fields.
 #[derive(Debug, PartialEq, Eq)]
 pub struct MutableEntryData {
     entry_type: EntryType,
