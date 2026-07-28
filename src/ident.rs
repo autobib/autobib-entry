@@ -1,9 +1,33 @@
+//! # Entry data identifiers
+//!
+//! There are three types of entry data identifiers:
+//!
+//! - [`EntryType`]: the entry type, like `article`
+//! - [`FieldKey`]: a field key, like `author`
+//! - [`FieldValue`]: a field value
+//!
+//! These are owned types, wrapping an internal string buffer.
+//! For the corresponding borrowed types, use:
+//!
+//! - [`EntryTypeRef`]
+//! - [`FieldKeyRef`]
+//! - [`FieldValueRef`]
+//!
+//! An [`EntryType`] has some standard names, enumerated in [`StandardEntryType`].
+//! Similarly, a [`FieldKey`] has some standard names, enumerated in [`StandardFieldKey`].
+//! Infallible conversion from the standard types, and fallible conversions to standard types, is
+//! possible.
+//!
+//! Standard types can also be parsed directly from strings, which can avoid unnecssary validity
+//! checks.
 mod deserialize;
+mod standard;
 
 use serde::Serialize;
 use serde_bibtex::token::{TokenError, check_balanced};
 
 use crate::error::DataError;
+pub use standard::{StandardEntryType, StandardFieldKey};
 
 /// A validated entry type (e.g. "article" in `@article{...}`) which satisfies the following
 /// requirements:
@@ -15,45 +39,69 @@ use crate::error::DataError;
 pub struct EntryType(pub(crate) String);
 impl Default for EntryType {
     fn default() -> Self {
-        Self("misc".into())
+        StandardEntryType::default().into()
     }
 }
 
 impl EntryType {
-    /// Construct a new entry type.
+    /// Validate that the given string is a valid entry type string.
     #[inline]
-    pub fn try_new(mut s: String) -> Result<Self, DataError> {
-        s.make_ascii_lowercase();
-
+    pub fn validate(s: &str) -> Result<(), DataError> {
         // Condition 1
         validate_ascii_identifier(s.as_bytes())?;
 
         // Condition 2
-        if matches!(s.as_str(), "comment" | "preamble" | "string") {
+        if matches!(s, "comment" | "preamble" | "string") {
             return Err(DataError::EntryTypeReserved);
         }
 
+        Ok(())
+    }
+
+    /// Construct a new entry type.
+    #[inline]
+    pub fn new(mut s: String) -> Result<Self, DataError> {
+        s.make_ascii_lowercase();
+        Self::validate(&s)?;
         Ok(Self(s))
     }
 
-    pub fn misc() -> Self {
-        Self("misc".into())
+    /// Construct an entry type from a standard entry type.
+    #[inline]
+    pub fn standard(et: StandardEntryType) -> Self {
+        et.into()
     }
 
-    pub fn preprint() -> Self {
-        Self("preprint".into())
+    /// Converts this entry type to a standard entry type, if possible.
+    #[inline]
+    pub fn as_standard(&self) -> Option<StandardEntryType> {
+        StandardEntryType::from_name(&self.0)
     }
 
-    pub fn book() -> Self {
-        Self("book".into())
+    /// Returns if this entry type is standard.
+    #[inline]
+    pub fn is_standard(&self) -> bool {
+        StandardEntryType::is_name(&self.0)
+    }
+}
+
+impl<'a> EntryTypeRef<'a> {
+    /// Construct an entry type from a standard entry type.
+    #[inline]
+    pub fn standard(et: StandardEntryType) -> Self {
+        et.into()
     }
 
-    pub fn in_collection() -> Self {
-        Self("incollection".into())
+    /// Converts this entry type to a standard entry type, if possible.
+    #[inline]
+    pub fn as_standard(&self) -> Option<StandardEntryType> {
+        StandardEntryType::from_name(self.0)
     }
 
-    pub fn article() -> Self {
-        Self("article".into())
+    /// Returns if this entry type is standard.
+    #[inline]
+    pub fn is_standard(&self) -> bool {
+        StandardEntryType::is_name(self.0)
     }
 }
 
@@ -66,13 +114,57 @@ impl EntryType {
 pub struct FieldKey(pub(crate) String);
 
 impl FieldKey {
+    /// Validate that the given string is valid as a field key.
     #[inline]
-    pub fn try_new(mut s: String) -> Result<Self, DataError> {
-        s.make_ascii_lowercase();
-
+    pub fn validate(s: &str) -> Result<(), DataError> {
         validate_ascii_identifier(s.as_bytes())?;
+        Ok(())
+    }
 
+    /// Construct a new field key.
+    #[inline]
+    pub fn new(mut s: String) -> Result<Self, DataError> {
+        s.make_ascii_lowercase();
+        Self::validate(&s)?;
         Ok(Self(s))
+    }
+
+    /// Construct a field key from a standard field key.
+    #[inline]
+    pub fn standard(et: StandardFieldKey) -> Self {
+        et.into()
+    }
+
+    /// Converts this field key to a standard field key, if possible.
+    #[inline]
+    pub fn as_standard(&self) -> Option<StandardFieldKey> {
+        StandardFieldKey::from_name(&self.0)
+    }
+
+    /// Returns if this field key is standard.
+    #[inline]
+    pub fn is_standard(&self) -> bool {
+        StandardFieldKey::is_name(&self.0)
+    }
+}
+
+impl<'a> FieldKeyRef<'a> {
+    /// Construct a field key from a standard field key.
+    #[inline]
+    pub fn standard(et: StandardFieldKey) -> Self {
+        et.into()
+    }
+
+    /// Converts this entry type to a standard field key, if possible.
+    #[inline]
+    pub fn as_standard(&self) -> Option<StandardFieldKey> {
+        StandardFieldKey::from_name(self.0)
+    }
+
+    /// Returns if this field key is standard.
+    #[inline]
+    pub fn is_standard(&self) -> bool {
+        StandardFieldKey::is_name(self.0)
     }
 }
 
@@ -84,16 +176,23 @@ impl FieldKey {
 pub struct FieldValue(pub(crate) String);
 
 impl FieldValue {
+    /// Validate that the given string is valid as a field value.
     #[inline]
-    pub fn try_new(s: String) -> Result<Self, DataError> {
-        check_balanced(s.as_bytes())?;
+    pub fn validate(s: &str) -> Result<(), DataError> {
+        check_balanced(s.as_bytes()).map_err(From::from)
+    }
 
+    /// Construct a new field value.
+    #[inline]
+    pub fn new(s: String) -> Result<Self, DataError> {
+        Self::validate(&s)?;
         Ok(Self(s))
     }
 }
 
 macro_rules! identifier_impl {
     ($e:ident, $r:ident) => {
+        /// A borrowed variant of the corresponding identifier.
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Clone, Copy)]
         pub struct $r<'r>(pub(crate) &'r str);
 
@@ -104,13 +203,21 @@ macro_rules! identifier_impl {
         }
 
         impl<'r> $r<'r> {
+            /// Construct a new borrowed variant by wrapping a string slice.
+            pub fn new(s: &'r str) -> Result<Self, DataError> {
+                $e::validate(s)?;
+                Ok(Self(s))
+            }
+
+            /// Obtain the inner string slice.
             pub fn inner(&self) -> &'r str {
                 &self.0
             }
         }
 
         impl $e {
-            pub fn ref_inner(&self) -> $r<'_> {
+            /// Obtain a borrowed variant referencing the internal string buffer.
+            pub fn by_ref(&self) -> $r<'_> {
                 $r(&self.0)
             }
         }
@@ -185,7 +292,7 @@ macro_rules! identifier_impl {
             type Err = DataError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                Self::try_new(s.into())
+                Self::new(s.into())
             }
         }
     };

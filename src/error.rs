@@ -49,7 +49,7 @@ impl std::error::Error for AccessError {}
 pub enum DataError {
     /// There was a syntax error in a BibTeX token or identifier.
     Token(TokenError),
-    /// An entry type is one of the reserved names `comment`, `preamble`, or `string`.
+    /// An entry type is one of the reserved names `comment`, `preamble`, `string`.
     EntryTypeReserved,
     /// An identifier which was expected to be Ascii is not Ascii
     NonAscii,

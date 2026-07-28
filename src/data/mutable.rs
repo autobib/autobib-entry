@@ -10,8 +10,8 @@ use serde::de::Error;
 use regex::Regex;
 
 use crate::{
-    EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef,
     data::EntryData,
+    ident::{EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef},
     normalize::{Normalize, normalize_whitespace_str},
 };
 
@@ -46,7 +46,7 @@ impl MutableEntryData {
     }
 
     pub fn try_new<E: Into<String>>(e: E) -> Result<Self, crate::error::DataError> {
-        Ok(Self::new(EntryType::try_new(e.into())?))
+        Ok(Self::new(EntryType::new(e.into())?))
     }
 
     pub fn check_and_insert<K: Into<String>, V: Into<String>>(
@@ -54,7 +54,7 @@ impl MutableEntryData {
         k: K,
         v: V,
     ) -> Result<(), crate::error::DataError> {
-        self.insert(FieldKey::try_new(k.into())?, FieldValue::try_new(v.into())?);
+        self.insert(FieldKey::new(k.into())?, FieldValue::new(v.into())?);
         Ok(())
     }
 
@@ -114,17 +114,15 @@ impl MutableEntryData {
 
 impl EntryData for MutableEntryData {
     fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)> {
-        self.fields
-            .iter()
-            .map(|(k, v)| (k.ref_inner(), v.ref_inner()))
+        self.fields.iter().map(|(k, v)| (k.by_ref(), v.by_ref()))
     }
 
     fn entry_type(&self) -> EntryTypeRef<'_> {
-        self.entry_type.ref_inner()
+        self.entry_type.by_ref()
     }
 
     fn get_field<'r>(&'r self, field_name: &str) -> Option<FieldValueRef<'r>> {
-        self.fields.get(field_name).map(FieldValue::ref_inner)
+        self.fields.get(field_name).map(FieldValue::by_ref)
     }
 
     fn count_fields(&self) -> usize {
@@ -362,8 +360,8 @@ impl MutableEntryData {
         mut resolve_field_conflict: F,
     ) {
         let other_entry_type = other.entry_type();
-        if self.entry_type.ref_inner() != other_entry_type {
-            match resolve_entry_type_conflict(self.entry_type.ref_inner(), other_entry_type) {
+        if self.entry_type != other_entry_type {
+            match resolve_entry_type_conflict(self.entry_type.by_ref(), other_entry_type) {
                 ConflictResolved::Current => {}
                 ConflictResolved::Incoming => {
                     self.entry_type = other_entry_type.into();
@@ -376,8 +374,8 @@ impl MutableEntryData {
 
         for (key, value) in other.fields() {
             match self.fields.get_mut(key.inner()) {
-                Some(current_value) if current_value.ref_inner() != value => {
-                    match resolve_field_conflict(key, current_value.ref_inner(), value) {
+                Some(current_value) if current_value != &value => {
+                    match resolve_field_conflict(key, current_value.by_ref(), value) {
                         ConflictResolved::Current => continue,
                         ConflictResolved::Incoming => {
                             current_value.0.clear();

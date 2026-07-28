@@ -4,14 +4,13 @@
 //! contained in a BibTeX bibliographic record excluding the citation key.
 pub mod data;
 pub mod error;
-mod ident;
+pub mod ident;
 mod normalize;
 
 #[cfg(feature = "v0")]
 pub mod v0;
 
 pub use {
-    error::{DataError, AccessError},
-    ident::{EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef},
+    error::{AccessError, DataError},
     normalize::{Normalization, Normalize},
 };

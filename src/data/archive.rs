@@ -38,7 +38,11 @@ use std::{ops::Range, str::from_utf8_unchecked};
 const HEADER_LEN: usize = 16;
 const FIELD_LEN: usize = 16;
 
-use crate::{FieldKeyRef, FieldValueRef, data::EntryData, error::AccessError};
+use crate::{
+    data::EntryData,
+    error::AccessError,
+    ident::{EntryTypeRef, FieldKeyRef, FieldValueRef},
+};
 
 /// Archive the provided entry data as a raw byte buffer.
 ///
@@ -336,10 +340,10 @@ impl EntryData for ArchivedEntryData {
         }
     }
 
-    fn entry_type(&self) -> crate::EntryTypeRef<'_> {
+    fn entry_type(&self) -> EntryTypeRef<'_> {
         let ly = self.layout();
         unsafe {
-            crate::EntryTypeRef(from_utf8_unchecked(
+            EntryTypeRef(from_utf8_unchecked(
                 self.0.get_unchecked(ly.entry_type_range()),
             ))
         }
