@@ -1,9 +1,4 @@
-use std::{
-    borrow::Borrow,
-    collections::{BTreeMap, btree_map},
-    str::FromStr,
-    sync::LazyLock,
-};
+use std::{borrow::Borrow, collections::BTreeMap, str::FromStr, sync::LazyLock};
 
 use serde::de::Error;
 
@@ -11,7 +6,11 @@ use regex::Regex;
 
 use crate::{
     data::EntryData,
-    ident::{EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef},
+    error::DataError,
+    ident::{
+        EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef,
+        StandardEntryType, StandardFieldKey,
+    },
     normalize::{Normalize, normalize_whitespace_str},
 };
 
@@ -37,27 +36,20 @@ impl MutableEntryData {
         }
     }
 
-    pub fn get_str<Q>(&self, key: &Q) -> Option<&str>
-    where
-        FieldKey: Borrow<Q> + Ord,
-        Q: Ord + ?Sized,
-    {
-        self.get(key).map(AsRef::as_ref)
+    /// Initialize a new [`MutableEntryData`] instance from a standard entry type.
+    pub fn new_standard(entry_type: StandardEntryType) -> Self {
+        Self {
+            entry_type: entry_type.into(),
+            fields: BTreeMap::new(),
+        }
     }
 
-    pub fn try_new<E: Into<String>>(e: E) -> Result<Self, crate::error::DataError> {
+    /// Try to initialize a new instance, failing of the provided entry type is not valid.
+    pub fn try_new<E: Into<String>>(e: E) -> Result<Self, DataError> {
         Ok(Self::new(EntryType::new(e.into())?))
     }
 
-    pub fn check_and_insert<K: Into<String>, V: Into<String>>(
-        &mut self,
-        k: K,
-        v: V,
-    ) -> Result<(), crate::error::DataError> {
-        self.insert(FieldKey::new(k.into())?, FieldValue::new(v.into())?);
-        Ok(())
-    }
-
+    /// Construct this instance by copying in data from other entry data.
     pub fn from_entry_data<D: EntryData + ?Sized>(cont: &D) -> Self {
         let mut new = Self::new(cont.entry_type().into());
         for (key, value) in cont.fields() {
@@ -66,42 +58,63 @@ impl MutableEntryData {
         new
     }
 
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.fields.len()
-    }
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.fields.is_empty()
-    }
-    #[inline]
-    pub fn get<Q>(&self, key: &Q) -> Option<&FieldValue>
-    where
-        FieldKey: Borrow<Q>,
-        Q: Ord + ?Sized,
-    {
-        self.fields.get::<Q>(key)
-    }
-    #[inline]
-    pub fn keys(&self) -> btree_map::Keys<'_, FieldKey, FieldValue> {
-        self.fields.keys()
-    }
-    #[inline]
-    pub fn values(&self) -> btree_map::Values<'_, FieldKey, FieldValue> {
-        self.fields.values()
-    }
+    /// Insert a new field key and filed value.
     #[inline]
     pub fn insert(&mut self, key: FieldKey, value: FieldValue) -> Option<FieldValue> {
         self.fields.insert(key, value)
     }
+
+    /// Insert a new standard field key and field value.
     #[inline]
-    pub fn contains_key<Q>(&self, key: &Q) -> bool
+    pub fn insert_standard(
+        &mut self,
+        key: StandardFieldKey,
+        value: FieldValue,
+    ) -> Option<FieldValue> {
+        self.fields.insert(key.into(), value)
+    }
+
+    /// Insert a new standard field key and field value as a string.
+    #[inline]
+    pub fn insert_standard_key<V: Into<String>>(
+        &mut self,
+        key: StandardFieldKey,
+        value: V,
+    ) -> Result<Option<FieldValue>, DataError> {
+        let value = FieldValue::new(value.into())?;
+        Ok(self.fields.insert(key.into(), value))
+    }
+
+    /// Try to insert a new field key and field value as a string.
+    #[inline]
+    pub fn try_insert<K: Into<String>, V: Into<String>>(
+        &mut self,
+        k: K,
+        v: V,
+    ) -> Result<Option<FieldValue>, DataError> {
+        Ok(self.insert(FieldKey::new(k.into())?, FieldValue::new(v.into())?))
+    }
+
+    /// Get the value at the key.
+    #[inline]
+    pub fn get<Q>(&self, key: &Q) -> Option<FieldValueRef<'_>>
     where
         FieldKey: Borrow<Q>,
         Q: Ord + ?Sized,
     {
-        self.fields.contains_key::<Q>(key)
+        self.fields.get::<Q>(key).map(FieldValue::by_ref)
     }
+
+    /// Get the value at the key as a string.
+    pub fn get_str<Q>(&self, key: &Q) -> Option<&str>
+    where
+        FieldKey: Borrow<Q> + Ord,
+        Q: Ord + ?Sized,
+    {
+        self.fields.get::<Q>(key).map(AsRef::as_ref)
+    }
+
+    /// Remove the value at the given key
     #[inline]
     pub fn remove<Q>(&mut self, key: &Q) -> Option<FieldValue>
     where
@@ -145,7 +158,7 @@ impl Normalize for MutableEntryData {
                     return false;
                 }
                 EPrintState::NeedsUpdate(val) => {
-                    self.insert(FieldKey("eprint".into()), FieldValue(val.0.clone()));
+                    self.insert(FieldKey("eprint".into()), val.into());
                     // SAFETY: 'eprinttype' satisfies the key requirements
                     // SAFETY: `key` is already a key in the database, and the requirements for
                     // keys are stricter than the requirements for values.
@@ -309,7 +322,7 @@ impl MutableEntryData {
     /// ```
     /// If the key is missing, returns `EPrintState::Missing`; otherwise, check if the `eprinttype`
     /// and `eprint` keys require changing.
-    fn is_eprint_normalized<Q: AsRef<str>>(&self, key: Q) -> EPrintState<&FieldValue> {
+    fn is_eprint_normalized<Q: AsRef<str>>(&self, key: Q) -> EPrintState<FieldValueRef<'_>> {
         let key_ref = key.as_ref();
         match self.get(key_ref) {
             Some(val) => {

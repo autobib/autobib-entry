@@ -1,5 +1,5 @@
 //! # Legacy archived data format
-//! 
+//!
 //! This is the v0 data format originally used by Autobib.
 //!
 //! ## Format
@@ -33,33 +33,13 @@
 //!
 //! The `DATA...` are sorted by `key` and each `key` and `entry_type` must be ASCII lowercase. The
 //! `entry_type` can be any valid UTF-8.
-//!
-//! For example we would serialize
-//! ```bib
-//! @article{...,
-//!   Year = {192},
-//!   Title = {The Title},
-//! }
-//! ```
-//! as
-//! ```
-//! # let mut record_data = RecordData::try_new("article".into()).unwrap();
-//! # record_data.check_and_insert("year".into(), "2023".into()).unwrap();
-//! # record_data
-//! #     .check_and_insert("title".into(), "The Title".into())
-//! #     .unwrap();
-//! # let byte_repr = RawEntryData::from(&record_data).into_byte_repr();
-//! let expected = vec![
-//!     0, 7, b'a', b'r', b't', b'i', b'c', b'l', b'e', 5, 9, 0, b't', b'i', b't', b'l', b'e',
-//!     b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e', b'a', b'r',
-//!     b'2', b'0', b'2', b'3',
-//! ];
-//! # assert_eq!(expected_byte_repr, byte_repr);
-//! ```
 use std::str::{from_utf8, from_utf8_unchecked};
 
 use crate::ident::validate_ascii_identifier;
-use crate::{EntryTypeRef, FieldKeyRef, FieldValueRef, data::EntryData};
+use crate::{
+    data::EntryData,
+    ident::{EntryTypeRef, FieldKeyRef, FieldValueRef},
+};
 
 /// The size (in bytes) of the version header.
 const DATA_HEADER_SIZE: usize = 1;
@@ -390,13 +370,11 @@ mod test {
     #[test]
     fn test_data_round_trip() {
         let mut record_data = MutableEntryData::try_new("article").unwrap();
-        record_data.check_and_insert("year", "2024").unwrap();
-        record_data.check_and_insert("title", "A title").unwrap();
-        record_data.check_and_insert("field", "").unwrap();
-        record_data.check_and_insert("a".repeat(255), "🍄").unwrap();
-        record_data
-            .check_and_insert("a", "b".repeat(65_535))
-            .unwrap();
+        record_data.try_insert("year", "2024").unwrap();
+        record_data.try_insert("title", "A title").unwrap();
+        record_data.try_insert("field", "").unwrap();
+        record_data.try_insert("a".repeat(255), "🍄").unwrap();
+        record_data.try_insert("a", "b".repeat(65_535)).unwrap();
 
         let raw_data = LegacyEntryData::from_entry_data(&record_data);
 
@@ -405,7 +383,7 @@ mod test {
 
         for (key, value) in raw_data.fields() {
             record_data_clone
-                .check_and_insert(key.inner(), value.inner())
+                .try_insert(key.inner(), value.inner())
                 .unwrap();
         }
 
@@ -421,7 +399,7 @@ mod test {
         fn check(keys: &[(&'static str, &'static str)]) {
             let mut data = MutableEntryData::default();
             for (k, v) in keys {
-                data.check_and_insert(*k, *v).unwrap();
+                data.try_insert(*k, *v).unwrap();
             }
             assert_eq!(data.fields().into_iter().count(), keys.len());
 
@@ -446,8 +424,8 @@ mod test {
     #[test]
     fn test_format_manual() {
         let mut record_data = MutableEntryData::try_new("article").unwrap();
-        record_data.check_and_insert("year", "2023").unwrap();
-        record_data.check_and_insert("title", "The Title").unwrap();
+        record_data.try_insert("year", "2023").unwrap();
+        record_data.try_insert("title", "The Title").unwrap();
 
         let data = LegacyEntryData::from_entry_data(&record_data);
         let expected = vec![

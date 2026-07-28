@@ -16,7 +16,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     ];
 
     for (k, v) in fields {
-        data.check_and_insert(k, v).unwrap();
+        data.try_insert(k, v).unwrap();
     }
 
     // initialize large data
@@ -25,7 +25,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         for ch2 in '0'..='9' {
             let k = format!("{ch1}{ch2}");
             let v = format!("{ch1}{ch2} value");
-            xl_data.check_and_insert(k, v).unwrap();
+            xl_data.try_insert(k, v).unwrap();
         }
     }
 

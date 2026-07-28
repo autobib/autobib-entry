@@ -389,7 +389,7 @@ mod tests {
         ];
 
         for (k, v) in fields {
-            data.check_and_insert(k, v).unwrap();
+            data.try_insert(k, v).unwrap();
         }
 
         let archived = ArchivedEntryData::from_entry_data(&data);
@@ -415,7 +415,7 @@ mod tests {
         ];
 
         for (k, v) in fields {
-            record_data.check_and_insert(k, v).unwrap();
+            record_data.try_insert(k, v).unwrap();
         }
 
         let raw_data = ArchivedEntryData::from_entry_data(&record_data);
@@ -425,7 +425,7 @@ mod tests {
 
         for (key, value) in raw_data.fields() {
             record_data_clone
-                .check_and_insert(key.inner(), value.inner())
+                .try_insert(key.inner(), value.inner())
                 .unwrap();
         }
 
@@ -447,7 +447,7 @@ mod tests {
         ];
 
         for (k, v) in fields {
-            data.check_and_insert(k, v).unwrap();
+            data.try_insert(k, v).unwrap();
         }
 
         let archived = ArchivedEntryData::from_entry_data(&data);
