@@ -1,6 +1,6 @@
 [package]
 name = "autobib-entry"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["Alex Rutar <alex@rutar.org>", "Peiran Wu"]
 description = "Entry data backend for the Autobib CLI"
 repository = "https://github.com/autobib/autobib-entry"

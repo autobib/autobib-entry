@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, collections::BTreeMap, str::FromStr, sync::LazyLock};
 
-use serde::de::Error;
+use serde::{Deserialize, de::Error};
 
 use regex::Regex;
 
@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// An [`EntryData`] implementation which supports performant addition and deletion of fields.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct MutableEntryData {
     entry_type: EntryType,
     fields: BTreeMap<FieldKey, FieldValue>,

@@ -373,6 +373,32 @@ impl EntryData for ArchivedEntryData {
     }
 }
 
+impl EntryData for Box<ArchivedEntryData> {
+    fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)> {
+        self.as_ref().fields()
+    }
+
+    fn entry_type(&self) -> EntryTypeRef<'_> {
+        self.as_ref().entry_type()
+    }
+
+    fn count_fields(&self) -> usize {
+        self.as_ref().count_fields()
+    }
+
+    fn get_field<'r>(&'r self, field_name: &str) -> Option<FieldValueRef<'r>> {
+        self.as_ref().get_field(field_name)
+    }
+
+    fn get_field_str<'r>(&'r self, field_name: &str) -> Option<&'r str> {
+        self.as_ref().get_field_str(field_name)
+    }
+
+    fn contains_field(&self, field_name: &str) -> bool {
+        self.as_ref().contains_field(field_name)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::data::*;
