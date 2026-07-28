@@ -1,3 +1,61 @@
+//! # Legacy archived data format
+//! 
+//! This is the v0 data format originally used by Autobib.
+//!
+//! ## Format
+//!
+//! The first byte is a marker byte.
+//! Depending on the marker byte, the format is as follows.
+//!
+//! ## Marker byte `0`
+//! The data is stored as a sequence of blocks.
+//! ```txt
+//! HEADER, TYPE, DATA1, DATA2, ...
+//! ```
+//! The `HEADER` consists of
+//! ```txt
+//! version: u8,
+//! ```
+//! and the `TYPE` consists of
+//! ```txt
+//! [entry_type_len: u8, entry_type: [u8..]]
+//! ```
+//! Here, `entry_type_len` is the length of `entry_type`, which has length at most [`u8::MAX`].
+//! Then, each block `DATA` is of the form
+//! ```txt
+//! [key_len: u8, value_len: u16, key: [u8..], value: [u8..]]
+//! ```
+//! where `key_len` is the length of the first `key` segment, and the `value_len` is
+//! the length of the `value` segment. Necessarily, `key` and `value` have lengths at
+//! most [`u8::MAX`] and [`u16::MAX`] respectively.
+//!
+//! `value_len` is encoded in little endian format.
+//!
+//! The `DATA...` are sorted by `key` and each `key` and `entry_type` must be ASCII lowercase. The
+//! `entry_type` can be any valid UTF-8.
+//!
+//! For example we would serialize
+//! ```bib
+//! @article{...,
+//!   Year = {192},
+//!   Title = {The Title},
+//! }
+//! ```
+//! as
+//! ```
+//! # let mut record_data = RecordData::try_new("article".into()).unwrap();
+//! # record_data.check_and_insert("year".into(), "2023".into()).unwrap();
+//! # record_data
+//! #     .check_and_insert("title".into(), "The Title".into())
+//! #     .unwrap();
+//! # let byte_repr = RawEntryData::from(&record_data).into_byte_repr();
+//! let expected = vec![
+//!     0, 7, b'a', b'r', b't', b'i', b'c', b'l', b'e', 5, 9, 0, b't', b'i', b't', b'l', b'e',
+//!     b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e', b'a', b'r',
+//!     b'2', b'0', b'2', b'3',
+//! ];
+//! # assert_eq!(expected_byte_repr, byte_repr);
+//! ```
 use std::str::{from_utf8, from_utf8_unchecked};
 
 use crate::ident::validate_ascii_identifier;
@@ -18,7 +76,7 @@ pub(crate) type EntryTypeHeader = u8;
 /// A raw binary representation of the field key and fields of a BibTeX entry.
 ///
 /// This struct is immutable by design. For a mutable version which supports addition and deletion
-/// of fields, see [`MutableEntryData`](super::MutableEntryData).
+/// of fields, see [`MutableEntryData`](crate::data::MutableEntryData).
 #[derive(Debug, PartialEq)]
 #[repr(transparent)]
 pub struct LegacyEntryData([u8]);
@@ -88,7 +146,7 @@ impl LegacyEntryData {
     ///
     /// The buffer bytes must be in the format as specified in the module-level documentation. This
     /// is guaranteed if [`Self::validate`] returns Ok, or if the buffer was originally produced by
-    /// [`serialize`] or [`Self::as_bytes`].
+    /// [`archive`] or [`Self::as_bytes`].
     pub unsafe fn load_unchecked(buf: Box<[u8]>) -> Box<Self> {
         unsafe { Box::from_raw(Box::into_raw(buf) as *mut LegacyEntryData) }
     }
@@ -102,7 +160,7 @@ impl LegacyEntryData {
     ///
     /// The buffer bytes must be in the format as specified in the module-level documentation. This
     /// is guaranteed if [`Self::validate`] returns Ok, or if the buffer was originally produced by
-    /// [`serialize`] or [`Self::as_bytes`].
+    /// [`archive`] or [`Self::as_bytes`].
     pub unsafe fn access_unchecked(b: &[u8]) -> &Self {
         unsafe { std::mem::transmute(b) }
     }

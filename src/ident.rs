@@ -76,13 +76,6 @@ impl FieldKey {
     }
 }
 
-// the field key requirements are stricted than the field value requirements
-impl From<FieldKey> for FieldValue {
-    fn from(value: FieldKey) -> Self {
-        Self(value.0)
-    }
-}
-
 /// A validated field value (e.g. `John Doe` in `...author = {John Doe}`) which satisfies the
 /// following requirements:
 ///
@@ -104,7 +97,7 @@ macro_rules! identifier_impl {
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Clone, Copy)]
         pub struct $r<'r>(pub(crate) &'r str);
 
-        impl From<$r<'_>> for $e {
+        impl ::std::convert::From<$r<'_>> for $e {
             fn from(value: $r<'_>) -> Self {
                 Self(value.0.into())
             }
@@ -122,35 +115,69 @@ macro_rules! identifier_impl {
             }
         }
 
-        impl AsRef<str> for $e {
+        impl<'a> AsRef<str> for $r<'a> {
+            fn as_ref(&self) -> &'a str {
+                &self.0
+            }
+        }
+
+        impl ::std::fmt::Display for $r<'_> {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                f.write_str(self.0)
+            }
+        }
+
+        impl ::std::convert::AsRef<str> for $e {
             fn as_ref(&self) -> &str {
-                self.0.as_ref()
+                &self.0
             }
         }
 
         impl ::std::fmt::Display for $e {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                f.write_str(self.0.as_ref())
+                f.write_str(&self.0)
             }
         }
 
-        // Borrow implementation for convenience of using `get.
+        impl ::std::borrow::Borrow<str> for $r<'_> {
+            fn borrow(&self) -> &str {
+                &self.0
+            }
+        }
+
         impl ::std::borrow::Borrow<str> for $e {
             fn borrow(&self) -> &str {
-                self.0.as_ref()
+                &self.0
             }
         }
 
-        // Borrow implementation for convenience of using `get.
         impl ::std::borrow::Borrow<String> for $e {
             fn borrow(&self) -> &String {
                 &self.0
             }
         }
 
-        impl PartialEq<str> for $e {
+        impl ::std::cmp::PartialEq<str> for $e {
             fn eq(&self, other: &str) -> bool {
-                self.as_ref().eq(other)
+                self.0.eq(other)
+            }
+        }
+
+        impl ::std::cmp::PartialEq<$r<'_>> for $e {
+            fn eq(&self, other: &$r<'_>) -> bool {
+                self.0.eq(other.0)
+            }
+        }
+
+        impl ::std::cmp::PartialEq<str> for $r<'_> {
+            fn eq(&self, other: &str) -> bool {
+                self.0.eq(other)
+            }
+        }
+
+        impl ::std::cmp::PartialEq<$e> for $r<'_> {
+            fn eq(&self, other: &$e) -> bool {
+                self.0.eq(&other.0)
             }
         }
 
@@ -167,6 +194,19 @@ macro_rules! identifier_impl {
 identifier_impl!(EntryType, EntryTypeRef);
 identifier_impl!(FieldKey, FieldKeyRef);
 identifier_impl!(FieldValue, FieldValueRef);
+
+// the field key requirements are stricted than the field value requirements
+impl From<FieldKey> for FieldValue {
+    fn from(value: FieldKey) -> Self {
+        Self(value.0)
+    }
+}
+
+impl<'a> From<FieldKeyRef<'a>> for FieldValueRef<'a> {
+    fn from(value: FieldKeyRef<'a>) -> Self {
+        Self(value.0)
+    }
+}
 
 /// Lookup table for bytes which could appear in an ASCII entry key or field key.
 /// This is precisely the ASCII printable characters with `{}(),= \t\n\\#%\"` and
@@ -198,8 +238,9 @@ static ASCII_IDENTIFIER_ALLOWED: [bool; 256] = {
     ]
 };
 
+/// Check that an identifier is valid ASCII.
 #[inline]
-pub fn validate_ascii_identifier(s: &[u8]) -> Result<&str, DataError> {
+pub(crate) fn validate_ascii_identifier(s: &[u8]) -> Result<&str, DataError> {
     if s.is_empty() {
         return Err(DataError::Token(TokenError::Empty));
     }

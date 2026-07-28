@@ -1,3 +1,7 @@
+//! # Autobib entry
+//!
+//! This crate contains various abstractions over BibTeX entry data, which is all of the data
+//! contained in a BibTeX bibliographic record excluding the citation key.
 pub mod data;
 pub mod error;
 mod ident;
