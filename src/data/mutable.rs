@@ -28,7 +28,7 @@ impl Default for MutableEntryData {
 }
 
 impl MutableEntryData {
-    /// Initialize a new [`MutableEntryData`] instance.
+    /// Initialize with a given entry type.
     pub fn new(entry_type: EntryType) -> Self {
         Self {
             entry_type,
@@ -36,7 +36,7 @@ impl MutableEntryData {
         }
     }
 
-    /// Initialize a new [`MutableEntryData`] instance from a standard entry type.
+    /// Initialize with a given standard entry type.
     pub fn new_standard(entry_type: StandardEntryType) -> Self {
         Self {
             entry_type: entry_type.into(),
@@ -44,7 +44,7 @@ impl MutableEntryData {
         }
     }
 
-    /// Try to initialize a new instance, failing of the provided entry type is not valid.
+    /// Try to initialize a new instance, failing if the provided entry type is not valid.
     pub fn try_new<E: Into<String>>(e: E) -> Result<Self, DataError> {
         Ok(Self::new(EntryType::new(e.into())?))
     }

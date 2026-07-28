@@ -1,3 +1,9 @@
+//! Errors which may occur during type conversion and validation
+//!
+//! There are two main error types:
+//!
+//! - [`AccessError`]: errors occuring during zero-copy deserialization.
+//! - [`DataError`]: errors occuring while constructing entry data.
 use std::{fmt, str::Utf8Error};
 
 use serde_bibtex::token::TokenError;
@@ -44,7 +50,7 @@ impl fmt::Display for AccessError {
 
 impl std::error::Error for AccessError {}
 
-/// An error which may occur while trying constructing entry data.
+/// An error which may occur while trying to construct entry data.
 #[derive(Debug, PartialEq)]
 pub enum DataError {
     /// There was a syntax error in a BibTeX token or identifier.

@@ -22,7 +22,7 @@ use serde::{
 use crate::ident::{EntryTypeRef, FieldKeyRef, FieldValueRef};
 
 pub use archive::{ArchivedEntryData, archive};
-pub use mutable::MutableEntryData;
+pub use mutable::{ConflictResolved, EntryEditCommand, MutableEntryData, SetFieldCommand};
 
 /// This trait represents types which encapsulate the data content of a single BibTeX entry.
 pub trait EntryData: PartialEq {
