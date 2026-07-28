@@ -20,6 +20,7 @@ Brief explanation:
 
 - `meta` is a metadata block, currently set as little-endian bytes to `[1 0 0 0 0 0 0 0]`.
   This distinguishes from the old data format used by Autobib which sets the first byte equal to `0`.
+  For validity, only the first byte is checked.
   In the future, Autobib may store additional information in the `meta` block.
 - `entry_type_len` is the length of the `entry_type` (`article`, `book`, etc.).
 - `num_fields` is the number of fields (`key = {value}` pairs).

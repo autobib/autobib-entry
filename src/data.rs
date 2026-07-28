@@ -1,5 +1,18 @@
+//! # Entry data types
+//!
+//! This module contains the core abstractions over entry data.
+//!
+//! - [`EntryData`]: a trait representing types which encapsulate the data content of a single BibTeX entry.
+//! - [`MutableEntryData`]: an [`EntryData`] implementation which also permits performant mutation.
+//!   Used to construct typed entry data.
+//! - [`ArchivedEntryData`]: a zero-copy deserialization format used for accessing archived data and
+//!   for archiving entry data.
+//! - [`archive`]: a convenience function to convert an [`EntryData`] directly into the archived
+//!   archived format.
+//! - [`EntryDataSerializer`]: a wrapper around an [`EntryData`] implementation which implements
+//!   [`serde::Serialize`] to allow serialization into other serde-compatible formats.
+mod archive;
 mod mutable;
-mod raw;
 
 use serde::{
     Serialize, Serializer,
@@ -8,8 +21,8 @@ use serde::{
 
 use crate::ident::{EntryTypeRef, FieldKeyRef, FieldValueRef};
 
+pub use archive::{ArchivedEntryData, archive};
 pub use mutable::MutableEntryData;
-pub use raw::{serialize, RawEntryData};
 
 /// This trait represents types which encapsulate the data content of a single BibTeX entry.
 pub trait EntryData: PartialEq {
@@ -21,7 +34,8 @@ pub trait EntryData: PartialEq {
 
     /// Count the number of fields.
     ///
-    /// The default implementation uses `self.fields().into_iter().count()`
+    /// The default implementation uses `self.fields().into_iter().count()`. Implementations
+    /// should provide a more performative alternative when possible.
     fn count_fields(&self) -> usize {
         self.fields().into_iter().count()
     }

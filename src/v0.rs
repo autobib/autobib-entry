@@ -1,7 +1,7 @@
 use std::str::{from_utf8, from_utf8_unchecked};
 
 use crate::ident::validate_ascii_identifier;
-use crate::{EntryData, EntryTypeRef, FieldKeyRef, FieldValueRef};
+use crate::{EntryTypeRef, FieldKeyRef, FieldValueRef, data::EntryData};
 
 /// The size (in bytes) of the version header.
 const DATA_HEADER_SIZE: usize = 1;
@@ -23,7 +23,7 @@ pub(crate) type EntryTypeHeader = u8;
 #[repr(transparent)]
 pub struct LegacyEntryData([u8]);
 
-pub fn serialize<D: EntryData + ?Sized>(entry_data: &D) -> Box<[u8]> {
+pub fn archive<D: EntryData + ?Sized>(entry_data: &D) -> Box<[u8]> {
     let raw_len = 1  // the size of the binary version header
             + (1 + entry_data.entry_type().inner().len()) // the entry type, plus the 1-byte header
             + entry_data // the key value pairs, plus the 3-byte header
@@ -108,7 +108,7 @@ impl LegacyEntryData {
     }
 
     pub fn from_entry_data<D: EntryData + ?Sized>(data: &D) -> Box<LegacyEntryData> {
-        unsafe { LegacyEntryData::load_unchecked(serialize(data)) }
+        unsafe { LegacyEntryData::load_unchecked(archive(data)) }
     }
 }
 
@@ -326,7 +326,7 @@ pub enum RecordDataError {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::*;
+    use crate::data::MutableEntryData;
 
     /// Check that conversion into the raw form and back results in identical data.
     #[test]

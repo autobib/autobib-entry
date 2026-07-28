@@ -3,7 +3,7 @@ use std::hint::black_box;
 use criterion::{Criterion, criterion_group, criterion_main};
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    use autobib_entry::*;
+    use autobib_entry::{data::*, v0};
 
     // initialize data
     let mut data = MutableEntryData::default();
@@ -30,16 +30,16 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     }
 
     c.bench_function("raw serialize", |b| {
-        b.iter(|| black_box(serialize(black_box(&data))))
+        b.iter(|| black_box(archive(black_box(&data))))
     });
 
-    let raw_bytes = serialize(&data);
-    let raw_xl_bytes = serialize(&xl_data);
+    let raw_bytes = archive(&data);
+    let raw_xl_bytes = archive(&xl_data);
 
     c.bench_function("raw access title", |b| {
         b.iter(|| {
             black_box(
-                RawEntryData::access(black_box(&raw_bytes))
+                ArchivedEntryData::access(black_box(&raw_bytes))
                     .unwrap()
                     .get_field("title"),
             )
@@ -49,7 +49,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("raw access large", |b| {
         b.iter(|| {
             black_box(
-                RawEntryData::access(black_box(&raw_xl_bytes))
+                ArchivedEntryData::access(black_box(&raw_xl_bytes))
                     .unwrap()
                     .get_field("u7"),
             )
@@ -58,13 +58,13 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function("raw access large unchecked", |b| {
         b.iter(|| unsafe {
-            black_box(RawEntryData::access_unchecked(black_box(&raw_xl_bytes)).get_field("u7"))
+            black_box(ArchivedEntryData::access_unchecked(black_box(&raw_xl_bytes)).get_field("u7"))
         })
     });
 
     c.bench_function("raw access all", |b| {
         b.iter(|| {
-            for (k, v) in RawEntryData::access(black_box(&raw_bytes))
+            for (k, v) in ArchivedEntryData::access(black_box(&raw_bytes))
                 .unwrap()
                 .fields()
             {
@@ -76,7 +76,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("raw access unchecked", |b| {
         b.iter(|| {
             black_box(unsafe {
-                RawEntryData::access_unchecked(black_box(&raw_bytes)).contains_field("author")
+                ArchivedEntryData::access_unchecked(black_box(&raw_bytes)).contains_field("author")
             })
         })
     });
@@ -84,7 +84,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("raw missing", |b| {
         b.iter(|| {
             black_box(
-                RawEntryData::access(black_box(&raw_bytes))
+                ArchivedEntryData::access(black_box(&raw_bytes))
                     .unwrap()
                     .contains_field("missing"),
             )
@@ -94,24 +94,24 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("raw missing unchecked", |b| {
         b.iter(|| {
             black_box(unsafe {
-                RawEntryData::access_unchecked(black_box(&raw_bytes)).contains_field("missing")
+                ArchivedEntryData::access_unchecked(black_box(&raw_bytes)).contains_field("missing")
             })
         })
     });
 
     c.bench_function("raw deserialize", |b| {
         b.iter(|| {
-            let raw = RawEntryData::access(black_box(&raw_bytes)).unwrap();
+            let raw = ArchivedEntryData::access(black_box(&raw_bytes)).unwrap();
             black_box(MutableEntryData::from_entry_data(raw).get_field("title"));
         })
     });
 
     c.bench_function("legacy serialize", |b| {
-        b.iter(|| black_box(v0::serialize(black_box(&data))))
+        b.iter(|| black_box(v0::archive(black_box(&data))))
     });
 
-    let legacy_bytes = v0::serialize(&data);
-    let legacy_xl_bytes = v0::serialize(&xl_data);
+    let legacy_bytes = v0::archive(&data);
+    let legacy_xl_bytes = v0::archive(&xl_data);
 
     c.bench_function("legacy access title", |b| {
         b.iter(|| {

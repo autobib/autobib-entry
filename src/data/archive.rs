@@ -1,12 +1,37 @@
-// # Zero-copy deserialization format
-//
-// ## Memory format
-//
-// ```text
-// | <- HEADER                       -> | <- FIELDS                          -> | <- DATA                 -> |
-// | meta | entry_type_len | num_fields | (key_idx, key_len, val_idx, val_len)* | entry_type.. keys.. vals.. |
-// | u64  | u32            | u32        | [u32, u32, u32, u32]*                 | str                        |
-// ```
+//! # Zero-copy deserialization format
+//!
+//! ## Memory format
+//!
+//! All `u32` and `u64` values are stored in little-endian order.
+//! ```text
+//! | <- HEADER                       -> | <- FIELDS                          -> | <- DATA                 -> |
+//! | meta | entry_type_len | num_fields | (key_idx, key_len, val_idx, val_len)* | entry_type.. keys.. vals.. |
+//! | u64  | u32            | u32        | [u32, u32, u32, u32]*                 | str                        |
+//! ```
+//!
+//! ### Format explanation
+//!
+//! - `HEADER`: fixed-size metadata for the data
+//!   - `meta`: a currently unused metadata block, currently set as little-endian bytes to `[1 0 0 0 0 0 0 0]`.
+//!     This distinguishes from the old data format used by Autobib which sets the first byte equal to `0`.
+//!     For validity, only the first byte is checked.
+//!     Future versions of this binary format may store additional metadata in the `meta` block.
+//!   - `entry_type_len`: the length (in bytes) of the entry type
+//!   - `num_fields`: the number of `key = {value}` fields
+//! - `FIELDS`: variable-size metadata for each `key = {value}` field
+//!   - `key_idx`: an index into ths byte buffer indicating the start of the `key`
+//!   - `key_len`: the length of the `key`
+//!   - `val_idx`: an index into ths byte buffer indicating the start of the `value`
+//!   - `val_len`: the length of the `value`
+//! - `DATA`: a contiguous string storing the raw contents of the entry type, and the field keys and the values.
+//!   The indices in `FIELDS` refer to valid sub-strings of the `DATA` block.
+//!
+//! ### Format features
+//!
+//! - The fields are sorted by key.
+//!   This means that specific `key = {value}` pairs can be found efficiently using [`binary_search_by_key`](https://doc.rust-lang.org/std/primitive.slice.html#method.binary_search_by_key).
+//! - The `DATA` block is a continguous Utf-8 string when valid.
+//!   This improves initial validation since we can check Utf-8 validity in a single pass, rather than check validity for each key and value individually (2-3x slower in benchmarks).
 
 use std::{ops::Range, str::from_utf8_unchecked};
 
@@ -15,10 +40,10 @@ const FIELD_LEN: usize = 16;
 
 use crate::{FieldKeyRef, FieldValueRef, data::EntryData, error::AccessError};
 
-/// Serialize the provided entry data as a raw byte buffer.
+/// Archive the provided entry data as a raw byte buffer.
 ///
-/// See [`RawEntryData::from_entry_data`] for the typed variant of this function.
-pub fn serialize<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
+/// See [`ArchivedEntryData::from_entry_data`] for the typed variant of this function.
+pub fn archive<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
     let entry_type_bytes = data.entry_type().inner().as_bytes();
     let num_fields = data.count_fields();
 
@@ -79,9 +104,9 @@ pub fn serialize<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
 /// This is a typed wrapper around a `[u8]` and is in particular unsized.
 #[derive(PartialEq)]
 #[repr(transparent)]
-pub struct RawEntryData([u8]);
+pub struct ArchivedEntryData([u8]);
 
-impl RawEntryData {
+impl ArchivedEntryData {
     /// Obtain the underlying bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
@@ -90,7 +115,7 @@ impl RawEntryData {
     /// Check that raw bytes are in the memory format defined in the module level documentation.
     pub fn validate(bytes: &[u8]) -> Result<(), AccessError> {
         // checking header
-        let Some((&[1, 0, 0, 0, 0, 0, 0, 0, e0, e1, e2, e3, l0, l1, l2, l3], _)) =
+        let Some((&[1, _, _, _, _, _, _, _, e0, e1, e2, e3, l0, l1, l2, l3], _)) =
             bytes.split_first_chunk::<HEADER_LEN>()
         else {
             return Err(AccessError::InvalidHeader);
@@ -163,19 +188,19 @@ impl RawEntryData {
     /// documentation, this is undefined behaviour. The format is guaranteed to be correct if:
     ///
     /// - [`Self::validate`] returns ok.
-    /// - The bytes were produced by a call to [`serialize`] or [`Self::as_bytes]`.
+    /// - The bytes were produced by a call to [`archive`] or [`Self::as_bytes`].
     pub unsafe fn load_unchecked(buf: Box<[u8]>) -> Box<Self> {
-        unsafe { Box::from_raw(Box::into_raw(buf) as *mut RawEntryData) }
+        unsafe { Box::from_raw(Box::into_raw(buf) as *mut ArchivedEntryData) }
     }
 
-    /// Access data from the provided byte buffer without any copying or deserialization, first
+    /// Access data from the provided byte buffer without any copying or parsing, first
     /// checking that the underlying bytes are valid.
     pub fn access(bytes: &[u8]) -> Result<&Self, AccessError> {
         Self::validate(bytes)?;
         unsafe { Ok(Self::access_unchecked(bytes)) }
     }
 
-    /// Access data from the provided byte buffer without any copying or deserialization, without
+    /// Access data from the provided byte buffer without any copying or parsing, without
     /// checking that the underlying bytes are valid.
     ///
     /// # Safety
@@ -184,14 +209,14 @@ impl RawEntryData {
     /// documentation, this is undefined behaviour. The format is guaranteed to be correct if:
     ///
     /// - [`Self::validate`] returns ok.
-    /// - The bytes were produced by a call to [`serialize`] or [`Self::as_bytes]`.
+    /// - The bytes were produced by a call to [`archive`] or [`Self::as_bytes`].
     pub unsafe fn access_unchecked(b: &[u8]) -> &Self {
         unsafe { std::mem::transmute(b) }
     }
 
     /// Construct the byte representation from any entry data implementation.
-    pub fn from_entry_data<D: EntryData + ?Sized>(data: &D) -> Box<RawEntryData> {
-        unsafe { RawEntryData::load_unchecked(serialize(data)) }
+    pub fn from_entry_data<D: EntryData + ?Sized>(data: &D) -> Box<ArchivedEntryData> {
+        unsafe { ArchivedEntryData::load_unchecked(archive(data)) }
     }
 }
 
@@ -270,7 +295,7 @@ impl FieldAccess {
     }
 }
 
-impl RawEntryData {
+impl ArchivedEntryData {
     /// Obtain the layout from the header.
     #[inline]
     fn layout(&self) -> RawLayout {
@@ -302,7 +327,7 @@ impl RawEntryData {
     }
 }
 
-impl EntryData for RawEntryData {
+impl EntryData for ArchivedEntryData {
     fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)> {
         let rf = self.raw_fields();
         unsafe {
@@ -363,12 +388,12 @@ mod tests {
             data.check_and_insert(k, v).unwrap();
         }
 
-        let serialized = RawEntryData::from_entry_data(&data);
-        assert_eq!(serialized.count_fields(), fields.len());
+        let archived = ArchivedEntryData::from_entry_data(&data);
+        assert_eq!(archived.count_fields(), fields.len());
         for (k, v) in fields {
-            assert_eq!(serialized.get_field_str(k), Some(v));
+            assert_eq!(archived.get_field_str(k), Some(v));
         }
-        for ((k, v), (ser_k, ser_v)) in fields.iter().zip(serialized.fields()) {
+        for ((k, v), (ser_k, ser_v)) in fields.iter().zip(archived.fields()) {
             assert_eq!(k, &ser_k.inner());
             assert_eq!(v, &ser_v.inner());
         }
@@ -389,7 +414,7 @@ mod tests {
             record_data.check_and_insert(k, v).unwrap();
         }
 
-        let raw_data = RawEntryData::from_entry_data(&record_data);
+        let raw_data = ArchivedEntryData::from_entry_data(&record_data);
 
         let mut record_data_clone =
             MutableEntryData::try_new(raw_data.entry_type().inner()).unwrap();
@@ -403,7 +428,7 @@ mod tests {
         assert_eq!(record_data, record_data_clone);
         assert_eq!(
             raw_data.as_bytes(),
-            RawEntryData::from_entry_data(&record_data_clone).as_bytes()
+            ArchivedEntryData::from_entry_data(&record_data_clone).as_bytes()
         );
     }
 
@@ -421,10 +446,10 @@ mod tests {
             data.check_and_insert(k, v).unwrap();
         }
 
-        let serialized = RawEntryData::from_entry_data(&data);
-        assert!(RawEntryData::validate(serialized.as_bytes()).is_ok());
+        let archived = ArchivedEntryData::from_entry_data(&data);
+        assert!(ArchivedEntryData::validate(archived.as_bytes()).is_ok());
         assert_eq!(
-            serialized.as_bytes(),
+            archived.as_bytes(),
             [
                 1, 0, 0, 0, 0, 0, 0, 0, // meta
                 4, 0, 0, 0, // entry length 4
@@ -449,10 +474,10 @@ mod tests {
 
         let data = MutableEntryData::try_new("article").unwrap();
 
-        let serialized = RawEntryData::from_entry_data(&data);
-        assert!(RawEntryData::validate(serialized.as_bytes()).is_ok());
+        let archived = ArchivedEntryData::from_entry_data(&data);
+        assert!(ArchivedEntryData::validate(archived.as_bytes()).is_ok());
         assert_eq!(
-            serialized.as_bytes(),
+            archived.as_bytes(),
             [
                 1, 0, 0, 0, 0, 0, 0, 0, // meta
                 7, 0, 0, 0, // entry length 7
