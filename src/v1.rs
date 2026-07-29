@@ -51,7 +51,7 @@ use crate::{
 /// Entry data formatted as a raw byte buffer.
 ///
 /// This is a typed wrapper around a `[u8]` and is in particular unsized.
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 #[repr(transparent)]
 pub struct ArchivedEntryData([u8]);
 
