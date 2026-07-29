@@ -25,7 +25,7 @@ pub use archive::{ArchivedEntryData, archive};
 pub use mutable::{ConflictResolved, EntryEditCommand, MutableEntryData, SetFieldCommand};
 
 /// This trait represents types which encapsulate the data content of a single BibTeX entry.
-pub trait EntryData: PartialEq {
+pub trait EntryData {
     /// Iterate over `(key, value)` pairs in order.
     fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)>;
 
@@ -66,6 +66,41 @@ pub trait EntryData: PartialEq {
     /// The default implementation checks that `get_field` returns `Some(_)`.
     fn contains_field(&self, field_name: &str) -> bool {
         self.get_field(field_name).is_some()
+    }
+}
+
+impl<D: std::ops::Deref> EntryData for D
+where
+    D::Target: EntryData,
+{
+    #[inline]
+    fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)> {
+        self.deref().fields()
+    }
+
+    #[inline]
+    fn entry_type(&self) -> EntryTypeRef<'_> {
+        self.deref().entry_type()
+    }
+
+    #[inline]
+    fn count_fields(&self) -> usize {
+        self.deref().count_fields()
+    }
+
+    #[inline]
+    fn get_field<'r>(&'r self, field_name: &str) -> Option<FieldValueRef<'r>> {
+        self.deref().get_field(field_name)
+    }
+
+    #[inline]
+    fn get_field_str<'r>(&'r self, field_name: &str) -> Option<&'r str> {
+        self.deref().get_field_str(field_name)
+    }
+
+    #[inline]
+    fn contains_field(&self, field_name: &str) -> bool {
+        self.deref().contains_field(field_name)
     }
 }
 
