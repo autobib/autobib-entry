@@ -11,17 +11,20 @@
 //!   archived format.
 //! - [`EntryDataSerializer`]: a wrapper around an [`EntryData`] implementation which implements
 //!   [`serde::Serialize`] to allow serialization into other serde-compatible formats.
-mod archive;
 mod mutable;
+
+use std::ops::Deref;
 
 use serde::{
     Serialize, Serializer,
     ser::{SerializeMap, SerializeStruct},
 };
 
-use crate::ident::{EntryTypeRef, FieldKeyRef, FieldValueRef};
+use crate::{
+    error::{AccessError, DataError},
+    ident::{EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef},
+};
 
-pub use archive::{ArchivedEntryData, archive};
 pub use mutable::{ConflictResolved, EntryEditCommand, MutableEntryData, SetFieldCommand};
 
 /// This trait represents types which encapsulate the data content of a single BibTeX entry.
@@ -67,9 +70,88 @@ pub trait EntryData {
     fn contains_field(&self, field_name: &str) -> bool {
         self.get_field(field_name).is_some()
     }
+
+    /// Validate that this entry data implementation is correct.
+    fn validate_untrusted(&self) -> Result<(), DataError> {
+        if !self.fields().into_iter().is_sorted_by_key(|(k, _)| k) {
+            return Err(DataError::Unsorted);
+        }
+
+        EntryType::validate(self.entry_type().inner())?;
+
+        for (k, v) in self.fields() {
+            FieldKey::validate(k.inner())?;
+            FieldValue::validate(v.inner())?;
+        }
+
+        Ok(())
+    }
 }
 
-impl<D: std::ops::Deref> EntryData for D
+/// Serialize entry data as raw bytes in the given format.
+pub fn archive<A: Archive + ?Sized, D: EntryData>(data: D) -> Box<[u8]> {
+    A::into_archive(A::from_entry_data(data))
+}
+
+/// Types that can be converted to raw bytes, which can be deserialized from raw bytes, and for
+/// which data can be immutably read from a byte slice.
+pub unsafe trait Archive: ToOwned {
+    /// Obtain the underlying bytes.
+    fn as_bytes(&self) -> &[u8];
+
+    /// Convert this type into an owned byte slice.
+    fn into_archive(archive: Self::Owned) -> Box<[u8]>;
+
+    /// Check that a byte slice is in a valid format accepted by this type.
+    fn validate(bytes: &[u8]) -> Result<(), AccessError>;
+
+    /// Construct a new instance of this type from any entry data.
+    fn from_entry_data<D: EntryData>(data: D) -> Self::Owned;
+
+    /// Load the provided byte buffer without checking that the underlying bytes are valid.
+    ///
+    /// # Safety
+    ///
+    /// If the underlying bytes are not valid according to the format specified in the module-level
+    /// documentation, this is undefined behaviour. The format is guaranteed to be correct if:
+    ///
+    /// - [`Self::validate`] returns ok.
+    /// - The bytes were produced by a call to [`archive`] or [`Self::as_bytes`].
+    unsafe fn load_unchecked(bytes: Box<[u8]>) -> Self::Owned;
+
+    /// Access data from the provided byte buffer without any copying or parsing, without
+    /// checking that the underlying bytes are valid.
+    ///
+    /// # Safety
+    ///
+    /// If the underlying bytes are not valid according to the format specified in the module-level
+    /// documentation, this is undefined behaviour. The format is guaranteed to be correct if:
+    ///
+    /// - [`Self::validate`] returns ok.
+    /// - The bytes were produced by a call to [`archive`] or [`Self::as_bytes`].
+    unsafe fn access_unchecked(bytes: &[u8]) -> &Self;
+
+    /// Load the provided byte buffer, first checking that the underlying bytes are valid.
+    ///
+    /// The default implementation first [validates](Self::validate) the byte buffer and then calls
+    /// [`load_unchecked`](Self::load_unchecked).
+    fn load(bytes: Box<[u8]>) -> Result<Self::Owned, AccessError> {
+        Self::validate(&bytes)?;
+        unsafe { Ok(Self::load_unchecked(bytes)) }
+    }
+
+    /// Access data from the provided byte buffer without any copying or parsing, first
+    /// checking that the underlying bytes are valid.
+    ///
+    /// The default implementation first [validates](Self::validate) the byte buffer and then calls
+    /// [`access_unchecked`](Self::access_unchecked).
+    fn access(bytes: &[u8]) -> Result<&Self, AccessError> {
+        Self::validate(&bytes)?;
+        unsafe { Ok(Self::access_unchecked(bytes)) }
+    }
+}
+
+impl<D: Deref> EntryData for D
 where
     D::Target: EntryData,
 {

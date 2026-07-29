@@ -1,4 +1,6 @@
-//! # Zero-copy deserialization format
+//! # `v1` zero-copy deserialization format
+//!
+//! This is the `v1` data format originally used by Autobib.
 //!
 //! ## Memory format
 //!
@@ -35,95 +37,16 @@
 //! - The `DATA` block is a continguous Utf-8 string when valid.
 //!   This improves initial validation since we can check Utf-8 validity in a single pass, rather than check validity for each key and value individually (2-3x slower in benchmarks).
 
-use std::str::from_utf8_unchecked;
+use std::{borrow::ToOwned, str::from_utf8_unchecked};
 
 const HEADER_LEN: usize = 16;
 const FIELD_LEN: usize = 16;
 
 use crate::{
-    data::EntryData,
+    data::{Archive, EntryData},
     error::AccessError,
     ident::{EntryTypeRef, FieldKeyRef, FieldValueRef},
 };
-
-/// Archive the provided entry data as a raw byte buffer.
-///
-/// See [`ArchivedEntryData::from_entry_data`] for the typed variant of this function.
-pub fn archive<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
-    let entry_type_bytes = data.entry_type().inner().as_bytes();
-    let num_fields = data.count_fields();
-
-    // pre-compute how much space we need since we will do non-linear allocation
-    let header_required = HEADER_LEN;
-    let fields_required = FIELD_LEN * num_fields;
-    let data_start = header_required + fields_required;
-    let str_total_len = data.entry_type().inner().len()
-        + data
-            .fields()
-            .into_iter()
-            .map(|(k, v)| k.inner().len() + v.inner().len())
-            .sum::<usize>();
-
-    let raw_data_len = data_start + str_total_len;
-    assert!(
-        raw_data_len < u32::MAX as usize,
-        "Cannot write entry data exceeding 2^32 bytes!"
-    );
-
-    // initialize as zeroed; we will write non-sequentially
-    let buf = Box::new_zeroed_slice(raw_data_len);
-    let mut buf = unsafe { buf.assume_init() };
-
-    // HEADER
-    unsafe {
-        *buf.get_unchecked_mut(0) = 1; // recall other values are zeroed
-        buf.get_unchecked_mut(4..8)
-            .copy_from_slice(&(num_fields as u32).to_le_bytes());
-        buf.get_unchecked_mut(8..12)
-            .copy_from_slice(&(data_start as u32).to_le_bytes()); // we always write entry type
-        // first
-        buf.get_unchecked_mut(12..16)
-            .copy_from_slice(&(entry_type_bytes.len() as u32).to_le_bytes());
-    }
-
-    // first, the entry data
-    let mut offset = data_start; // a cursor for the current position within the buffer up to which
-    // we have written
-    unsafe {
-        buf.get_unchecked_mut(offset..offset + entry_type_bytes.len())
-            .copy_from_slice(entry_type_bytes)
-    };
-    offset = data_start + entry_type_bytes.len();
-
-    // then all of the fields
-    for (idx, (k, v)) in data.fields().into_iter().enumerate() {
-        let field_start = HEADER_LEN + FIELD_LEN * idx;
-
-        // write the field key data and the field key
-        unsafe {
-            buf.get_unchecked_mut(field_start..field_start + 4)
-                .copy_from_slice(&(offset as u32).to_le_bytes());
-            buf.get_unchecked_mut(field_start + 4..field_start + 8)
-                .copy_from_slice(&(k.inner().len() as u32).to_le_bytes());
-            buf.get_unchecked_mut(offset..offset + k.inner().len())
-                .copy_from_slice(k.inner().as_bytes());
-        }
-        offset += k.inner().len();
-
-        // write the field value data and the field value
-        unsafe {
-            buf.get_unchecked_mut(field_start + 8..field_start + 12)
-                .copy_from_slice(&(offset as u32).to_le_bytes());
-            buf.get_unchecked_mut(field_start + 12..field_start + 16)
-                .copy_from_slice(&(v.inner().len() as u32).to_le_bytes());
-            buf.get_unchecked_mut(offset..offset + v.inner().len())
-                .copy_from_slice(v.inner().as_bytes());
-        }
-        offset += v.inner().len();
-    }
-
-    buf
-}
 
 /// Entry data formatted as a raw byte buffer.
 ///
@@ -132,14 +55,22 @@ pub fn archive<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
 #[repr(transparent)]
 pub struct ArchivedEntryData([u8]);
 
-impl ArchivedEntryData {
+impl ToOwned for ArchivedEntryData {
+    type Owned = Box<Self>;
+
+    fn to_owned(&self) -> Self::Owned {
+        unsafe { Self::load_unchecked(Box::from(&self.0)) }
+    }
+}
+
+unsafe impl Archive for ArchivedEntryData {
     /// Obtain the underlying bytes.
-    pub fn as_bytes(&self) -> &[u8] {
+    fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
     /// Check that raw bytes are in the memory format defined in the module level documentation.
-    pub fn validate(bytes: &[u8]) -> Result<(), AccessError> {
+    fn validate(bytes: &[u8]) -> Result<(), AccessError> {
         // checking header
         let Some((&[1, 0, 0, 0, l0, l1, l2, l3, _, _, _, _, e0, e1, e2, e3], _)) =
             bytes.split_first_chunk::<HEADER_LEN>()
@@ -203,7 +134,7 @@ impl ArchivedEntryData {
 
     /// Load the provided byte buffer, first checking that the underlying bytes are valid.
     #[inline]
-    pub fn load(bytes: Box<[u8]>) -> Result<Box<Self>, AccessError> {
+    fn load(bytes: Box<[u8]>) -> Result<Box<Self>, AccessError> {
         Self::validate(&bytes)?;
         unsafe { Ok(Self::load_unchecked(bytes)) }
     }
@@ -218,16 +149,8 @@ impl ArchivedEntryData {
     /// - [`Self::validate`] returns ok.
     /// - The bytes were produced by a call to [`archive`] or [`Self::as_bytes`].
     #[inline]
-    pub unsafe fn load_unchecked(buf: Box<[u8]>) -> Box<Self> {
+    unsafe fn load_unchecked(buf: Box<[u8]>) -> Box<Self> {
         unsafe { Box::from_raw(Box::into_raw(buf) as *mut ArchivedEntryData) }
-    }
-
-    /// Access data from the provided byte buffer without any copying or parsing, first
-    /// checking that the underlying bytes are valid.
-    #[inline]
-    pub fn access(bytes: &[u8]) -> Result<&Self, AccessError> {
-        Self::validate(bytes)?;
-        unsafe { Ok(Self::access_unchecked(bytes)) }
     }
 
     /// Access data from the provided byte buffer without any copying or parsing, without
@@ -241,20 +164,92 @@ impl ArchivedEntryData {
     /// - [`Self::validate`] returns ok.
     /// - The bytes were produced by a call to [`archive`] or [`Self::as_bytes`].
     #[inline]
-    pub unsafe fn access_unchecked(b: &[u8]) -> &Self {
+    unsafe fn access_unchecked(b: &[u8]) -> &Self {
         unsafe { std::mem::transmute(b) }
     }
 
     /// Construct the byte representation from any entry data implementation.
     #[inline]
-    pub fn from_entry_data<D: EntryData + ?Sized>(data: &D) -> Box<ArchivedEntryData> {
-        unsafe { ArchivedEntryData::load_unchecked(archive(data)) }
+    fn from_entry_data<D: EntryData>(data: D) -> Box<ArchivedEntryData> {
+        let entry_type_bytes = data.entry_type().inner().as_bytes();
+        let num_fields = data.count_fields();
+
+        // pre-compute how much space we need since we will do non-linear allocation
+        let header_required = HEADER_LEN;
+        let fields_required = FIELD_LEN * num_fields;
+        let data_start = header_required + fields_required;
+        let str_total_len = data.entry_type().inner().len()
+            + data
+                .fields()
+                .into_iter()
+                .map(|(k, v)| k.inner().len() + v.inner().len())
+                .sum::<usize>();
+
+        let raw_data_len = data_start + str_total_len;
+        assert!(
+            raw_data_len < u32::MAX as usize,
+            "Cannot write entry data exceeding 2^32 bytes!"
+        );
+
+        // initialize as zeroed; we will write non-sequentially
+        let buf = Box::new_zeroed_slice(raw_data_len);
+        let mut buf = unsafe { buf.assume_init() };
+
+        // HEADER
+        unsafe {
+            *buf.get_unchecked_mut(0) = 1; // recall other values are zeroed
+            buf.get_unchecked_mut(4..8)
+                .copy_from_slice(&(num_fields as u32).to_le_bytes());
+            buf.get_unchecked_mut(8..12)
+                .copy_from_slice(&(data_start as u32).to_le_bytes()); // we always write entry type
+            // first
+            buf.get_unchecked_mut(12..16)
+                .copy_from_slice(&(entry_type_bytes.len() as u32).to_le_bytes());
+        }
+
+        // first, the entry data
+        let mut offset = data_start; // a cursor for the current position within the buffer up to which
+        // we have written
+        unsafe {
+            buf.get_unchecked_mut(offset..offset + entry_type_bytes.len())
+                .copy_from_slice(entry_type_bytes)
+        };
+        offset = data_start + entry_type_bytes.len();
+
+        // then all of the fields
+        for (idx, (k, v)) in data.fields().into_iter().enumerate() {
+            let field_start = HEADER_LEN + FIELD_LEN * idx;
+
+            // write the field key data and the field key
+            unsafe {
+                buf.get_unchecked_mut(field_start..field_start + 4)
+                    .copy_from_slice(&(offset as u32).to_le_bytes());
+                buf.get_unchecked_mut(field_start + 4..field_start + 8)
+                    .copy_from_slice(&(k.inner().len() as u32).to_le_bytes());
+                buf.get_unchecked_mut(offset..offset + k.inner().len())
+                    .copy_from_slice(k.inner().as_bytes());
+            }
+            offset += k.inner().len();
+
+            // write the field value data and the field value
+            unsafe {
+                buf.get_unchecked_mut(field_start + 8..field_start + 12)
+                    .copy_from_slice(&(offset as u32).to_le_bytes());
+                buf.get_unchecked_mut(field_start + 12..field_start + 16)
+                    .copy_from_slice(&(v.inner().len() as u32).to_le_bytes());
+                buf.get_unchecked_mut(offset..offset + v.inner().len())
+                    .copy_from_slice(v.inner().as_bytes());
+            }
+            offset += v.inner().len();
+        }
+
+        unsafe { Self::load_unchecked(buf) }
     }
 
     /// Convert into boxed bytes.
     #[inline]
-    pub fn into_boxed_bytes(self: Box<Self>) -> Box<[u8]> {
-        unsafe { Box::from_raw(Box::into_raw(self) as *mut [u8]) }
+    fn into_archive(archive: Box<Self>) -> Box<[u8]> {
+        unsafe { Box::from_raw(Box::into_raw(archive) as *mut [u8]) }
     }
 }
 
@@ -434,6 +429,7 @@ impl EntryData for ArchivedEntryData {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::data::*;
 
     #[test]

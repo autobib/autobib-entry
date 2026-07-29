@@ -11,8 +11,12 @@ use serde_bibtex::token::TokenError;
 /// An error which may occur during zero-copy deserialization.
 #[derive(Debug, PartialEq)]
 pub enum AccessError {
-    /// The header bytes where incomplete or invalid.
+    /// The format is not recognized by this variant.
+    Unrecognized,
+    /// The header bytes are incomplete or invalid.
     InvalidHeader,
+    /// The header bytes are incomplete or invalid.
+    InvalidEntryType,
     /// The fields metadata is incomplete.
     IncompleteFields,
     /// There are trailing bites starting at the given byte offset.
@@ -35,7 +39,9 @@ impl From<Utf8Error> for AccessError {
 impl fmt::Display for AccessError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidHeader => f.write_str("data has incomplete header"),
+            Self::Unrecognized => f.write_str("data format could not be recognized"),
+            Self::InvalidHeader => f.write_str("data has invalid or incomplete header"),
+            Self::InvalidEntryType => f.write_str("data has invalid entry type pointer"),
             Self::IncompleteFields => f.write_str("data has incomplete field metadata"),
             Self::TrailingBytes(idx) => write!(
                 f,
@@ -59,6 +65,8 @@ pub enum DataError {
     EntryTypeReserved,
     /// An identifier which was expected to be Ascii is not Ascii
     NonAscii,
+    /// Fields are not sorted by field key.
+    Unsorted,
 }
 
 impl From<TokenError> for DataError {
@@ -72,6 +80,7 @@ impl fmt::Display for DataError {
         match self {
             Self::Token(err) => err.fmt(f),
             Self::NonAscii => f.write_str("identifier is not ASCII"),
+            Self::Unsorted => f.write_str("fields are not sorted by field key"),
             Self::EntryTypeReserved => {
                 f.write_str("entry type must not be a reserved name: comment, preamble, string")
             }

@@ -6,7 +6,7 @@ use regex::Regex;
 
 use crate::{
     data::EntryData,
-    error::DataError,
+    error::{AccessError, DataError},
     ident::{
         EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef,
         StandardEntryType, StandardFieldKey,
@@ -50,12 +50,30 @@ impl MutableEntryData {
     }
 
     /// Construct this instance by copying in data from other entry data.
-    pub fn from_entry_data<D: EntryData + ?Sized>(cont: &D) -> Self {
+    pub fn from_entry_data<D: EntryData>(cont: D) -> Self {
         let mut new = Self::new(cont.entry_type().into());
         for (key, value) in cont.fields() {
             new.fields.insert(key.into(), value.into());
         }
         new
+    }
+
+    /// Load universally from raw bytes in any format loaded as a feature.
+    ///
+    /// In order for the bytes to be recognized, you must load a feature of the form `v*`. For
+    /// example, loading the feature `v1` means this type can be loaded from any bytes in the `v1`
+    /// format. If no features are loaded, then this will always return
+    /// [`AccessError::Unrecognized`].
+    pub fn from_archive_universal(bytes: &[u8]) -> Result<Self, AccessError> {
+        use crate::data::Archive;
+        let me = match bytes.get(0) {
+            #[cfg(feature = "v0")]
+            Some(0) => Self::from_entry_data(crate::v0::ArchivedEntryData::access(bytes)?),
+            #[cfg(feature = "v1")]
+            Some(1) => Self::from_entry_data(crate::v1::ArchivedEntryData::access(bytes)?),
+            _ => return Err(AccessError::Unrecognized),
+        };
+        Ok(me)
     }
 
     /// Insert a new field key and filed value.

@@ -30,11 +30,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     }
 
     c.bench_function("raw serialize", |b| {
-        b.iter(|| black_box(archive(black_box(&data))))
+        b.iter(|| black_box(archive::<ArchivedEntryData, _>(black_box(&data))))
     });
 
-    let raw_bytes = archive(&data);
-    let raw_xl_bytes = archive(&xl_data);
+    let raw_bytes = archive::<ArchivedEntryData, _>(&data);
+    let raw_xl_bytes = archive::<ArchivedEntryData, _>(&xl_data);
 
     c.bench_function("raw access title", |b| {
         b.iter(|| {
@@ -116,7 +116,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("legacy access title", |b| {
         b.iter(|| {
             black_box(
-                v0::LegacyEntryData::access(black_box(&legacy_bytes))
+                v0::ArchivedEntryData::access(black_box(&legacy_bytes))
                     .unwrap()
                     .get_field("title"),
             )
@@ -126,7 +126,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("legacy access large", |b| {
         b.iter(|| {
             black_box(
-                v0::LegacyEntryData::access(black_box(&legacy_xl_bytes))
+                v0::ArchivedEntryData::access(black_box(&legacy_xl_bytes))
                     .unwrap()
                     .get_field("u7"),
             )
@@ -136,14 +136,14 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("legacy access large unchecked", |b| {
         b.iter(|| unsafe {
             black_box(
-                v0::LegacyEntryData::access_unchecked(black_box(&legacy_xl_bytes)).get_field("u7"),
+                v0::ArchivedEntryData::access_unchecked(black_box(&legacy_xl_bytes)).get_field("u7"),
             )
         })
     });
 
     c.bench_function("legacy access all", |b| {
         b.iter(|| {
-            for (k, v) in v0::LegacyEntryData::access(black_box(&legacy_bytes))
+            for (k, v) in v0::ArchivedEntryData::access(black_box(&legacy_bytes))
                 .unwrap()
                 .fields()
             {
@@ -155,7 +155,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("legacy access unchecked", |b| {
         b.iter(|| {
             black_box(unsafe {
-                v0::LegacyEntryData::access_unchecked(black_box(&legacy_bytes))
+                v0::ArchivedEntryData::access_unchecked(black_box(&legacy_bytes))
                     .contains_field("author")
             })
         })
@@ -164,7 +164,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("legacy missing", |b| {
         b.iter(|| {
             black_box(
-                v0::LegacyEntryData::access(black_box(&legacy_bytes))
+                v0::ArchivedEntryData::access(black_box(&legacy_bytes))
                     .unwrap()
                     .contains_field("missing"),
             )
@@ -174,7 +174,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("legacy missing unchecked", |b| {
         b.iter(|| {
             black_box(unsafe {
-                v0::LegacyEntryData::access_unchecked(black_box(&legacy_bytes))
+                v0::ArchivedEntryData::access_unchecked(black_box(&legacy_bytes))
                     .contains_field("missing")
             })
         })
@@ -182,7 +182,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function("legacy deserialize", |b| {
         b.iter(|| {
-            let legacy = v0::LegacyEntryData::access(black_box(&legacy_bytes)).unwrap();
+            let legacy = v0::ArchivedEntryData::access(black_box(&legacy_bytes)).unwrap();
             black_box(MutableEntryData::from_entry_data(legacy).get_field("title"));
         })
     });

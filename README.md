@@ -3,12 +3,17 @@
 This repository contains the implementation for the entry data backend used by the [Autobib](https://github.com/autobib/autobib) bibliography management tool.
 Entry data is all of the data contained in a BibTeX entry, excluding the citation key.
 
-This crate defines a zero-copy disk format for entry data.
+This crate defines zero-copy disk formats for entry data.
 This allows very efficient access and deserialization of key values directly from disk, without requiring any parsing or allocations (beyond allocating space for the buffer itself).
-The implementation here is more compact and has faster reads than a comparable `rkyv`-derived implementation.
+The main `v1` implementation here is more compact and has faster reads than a comparable `rkyv`-derived implementation.
 It also has the benefit of being fixed and transparently documented.
+There are multiple formats:
 
-## Memory layout
+- [`v1`](#v1-memory-layout) - current format
+- [`v0`](#v0-memory-layout) - legacy format used by Autobib databases `<= 4`, versions `< 0.7.0` (slightly more compact, but with much slower reads, in particular `O(n)` field reads)
+
+
+## `v1` memory layout
 
 The layout of the data in memory is as follows:
 ```text
@@ -43,6 +48,9 @@ All `u32` are stored as little-endian bytes.
   This means that specific `key = {value}` pairs can be found efficiently using [`binary_search_by_key`](https://doc.rust-lang.org/std/primitive.slice.html#method.binary_search_by_key).
 - The `DATA` block is a continguous Utf-8 string when valid.
   This improves initial validation since we can check Utf-8 validity in a single pass, rather than check validity for each key and value individually (2-3x slower in benchmarks).
+- The `u32` reads are all aligned.
+  This improves read performance substantially, as long as the underlying byte buffer is `u32`-aligned.
+  The field metadata is also `u128`-aligned, though this is not currently exploited by the implementation.
 
 ### Format flexibility
 
@@ -57,3 +65,39 @@ All `u32` are stored as little-endian bytes.
   Rearrangement of field keys and field values is permitted since the indices and lengths are absolute and therefore remain valid.
 - Store if `DATA` is ASCII for faster initialization.
 - Allow 'unpacked' versions with flag (packed default), in which case need to check validity of char boundaries on both sides.
+
+# `v0`
+
+This is the v0 data format originally used by Autobib.
+
+## `v0` memory layout
+
+The first byte is a marker byte.
+Depending on the marker byte, the format is as follows.
+
+## Marker byte `0`
+The data is stored as a sequence of blocks.
+```txt
+HEADER, TYPE, DATA1, DATA2, ...
+```
+The `HEADER` consists of
+```txt
+version: u8,
+```
+and the `TYPE` consists of
+```txt
+[entry_type_len: u8, entry_type: [u8..]]
+```
+Here, `entry_type_len` is the length of `entry_type`, which has length at most [`u8::MAX`].
+Then, each block `DATA` is of the form
+```txt
+[key_len: u8, value_len: u16, key: [u8..], value: [u8..]]
+```
+where `key_len` is the length of the first `key` segment, and the `value_len` is
+the length of the `value` segment. Necessarily, `key` and `value` have lengths at
+most [`u8::MAX`] and [`u16::MAX`] respectively.
+
+`value_len` is encoded in little endian format.
+
+The `DATA...` are sorted by `key` and each `key` and `entry_type` must be ASCII lowercase. The
+`entry_type` can be any valid UTF-8.

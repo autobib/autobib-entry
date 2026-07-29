@@ -1,6 +1,6 @@
-//! # Legacy archived data format
+//! # `v0` zero-copy deserialization format
 //!
-//! This is the v0 data format originally used by Autobib.
+//! This is the legacy `v0` data format originally used by Autobib versions `< 0.7.0`.
 //!
 //! ## Format
 //!
@@ -37,9 +37,9 @@ use std::str::{from_utf8, from_utf8_unchecked};
 
 use thiserror::Error;
 
-use crate::ident::validate_ascii_identifier;
+use crate::error::AccessError;
 use crate::{
-    data::EntryData,
+    data::{Archive, EntryData},
     ident::{EntryTypeRef, FieldKeyRef, FieldValueRef},
 };
 
@@ -61,7 +61,7 @@ pub(crate) type EntryTypeHeader = u8;
 /// of fields, see [`MutableEntryData`](crate::data::MutableEntryData).
 #[derive(Debug, PartialEq)]
 #[repr(transparent)]
-pub struct LegacyEntryData([u8]);
+pub struct ArchivedEntryData([u8]);
 
 pub fn archive<D: EntryData + ?Sized>(entry_data: &D) -> Box<[u8]> {
     let raw_len = 1  // the size of the binary version header
@@ -96,34 +96,48 @@ pub fn archive<D: EntryData + ?Sized>(entry_data: &D) -> Box<[u8]> {
     data.into_boxed_slice()
 }
 
-impl LegacyEntryData {
+impl ToOwned for ArchivedEntryData {
+    type Owned = Box<Self>;
+
+    fn to_owned(&self) -> Self::Owned {
+        unsafe { Self::load_unchecked(Box::from(&self.0)) }
+    }
+}
+
+unsafe impl Archive for ArchivedEntryData {
     /// Obtain the underlying bytes.
-    pub fn as_bytes(&self) -> &[u8] {
+    fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
     /// Check that raw bytes are in the memory format defined in the module level documentation.
-    pub fn validate(bytes: &[u8]) -> Result<(), InvalidBytesError> {
+    fn validate(bytes: &[u8]) -> Result<(), AccessError> {
         match bytes {
             [0, ..] => {
                 let mut cursor = Self::check_type(bytes, 1)?;
+                let mut idx = 0;
                 loop {
-                    match Self::check_data_block(bytes, cursor)? {
+                    match Self::check_data_block(bytes, idx, cursor)? {
                         Some(next_cursor) => {
+                            idx += 1;
                             cursor = next_cursor;
                         }
                         None => break Ok(()),
                     }
                 }
             }
-            [_, ..] => Err(InvalidBytesError::new(0, "invalid version")),
-            [] => Err(InvalidBytesError::new(0, "data was empty")),
+            [_, ..] => Err(AccessError::Unrecognized),
+            [] => Err(AccessError::InvalidHeader),
         }
     }
 
-    pub fn load(bytes: Box<[u8]>) -> Result<Box<Self>, InvalidBytesError> {
-        Self::validate(&bytes)?;
-        unsafe { Ok(Self::load_unchecked(bytes)) }
+    /// # Safety
+    ///
+    /// The buffer bytes must be in the format as specified in the module-level documentation. This
+    /// is guaranteed if [`Self::validate`] returns Ok, or if the buffer was originally produced by
+    /// [`archive`] or [`Self::as_bytes`].
+    unsafe fn load_unchecked(buf: Box<[u8]>) -> Box<Self> {
+        unsafe { Box::from_raw(Box::into_raw(buf) as *mut ArchivedEntryData) }
     }
 
     /// # Safety
@@ -131,75 +145,75 @@ impl LegacyEntryData {
     /// The buffer bytes must be in the format as specified in the module-level documentation. This
     /// is guaranteed if [`Self::validate`] returns Ok, or if the buffer was originally produced by
     /// [`archive`] or [`Self::as_bytes`].
-    pub unsafe fn load_unchecked(buf: Box<[u8]>) -> Box<Self> {
-        unsafe { Box::from_raw(Box::into_raw(buf) as *mut LegacyEntryData) }
-    }
-
-    pub fn access(bytes: &[u8]) -> Result<&Self, InvalidBytesError> {
-        Self::validate(bytes)?;
-        unsafe { Ok(Self::access_unchecked(bytes)) }
-    }
-
-    /// # Safety
-    ///
-    /// The buffer bytes must be in the format as specified in the module-level documentation. This
-    /// is guaranteed if [`Self::validate`] returns Ok, or if the buffer was originally produced by
-    /// [`archive`] or [`Self::as_bytes`].
-    pub unsafe fn access_unchecked(b: &[u8]) -> &Self {
+    unsafe fn access_unchecked(b: &[u8]) -> &Self {
         unsafe { std::mem::transmute(b) }
     }
 
     /// Construct the byte representation from any entry data implementation.
-    pub fn from_entry_data<D: EntryData + ?Sized>(data: &D) -> Box<LegacyEntryData> {
-        unsafe { LegacyEntryData::load_unchecked(archive(data)) }
+    fn from_entry_data<D: EntryData>(data: D) -> Box<ArchivedEntryData> {
+        let entry_data: &D = &data;
+        let raw_len = 1  // the size of the binary version header
+                    + (1 + entry_data.entry_type().inner().len()) // the entry type, plus the 1-byte header
+                    + entry_data // the key value pairs, plus the 3-byte header
+                        .fields()
+                        .into_iter()
+                        .map(|(k, v)| 3 + k.inner().len() + v.inner().len())
+                        .sum::<usize>();
+        let mut data = Vec::with_capacity(raw_len);
+        data.push(0);
+        let entry_type = entry_data.entry_type();
+        let entry_type_len = EntryTypeHeader::try_from(entry_type.inner().len()).unwrap();
+        data.push(entry_type_len);
+        data.extend(entry_type.inner().as_bytes());
+        for (key, value) in entry_data.fields() {
+            let key_len = KeyHeader::try_from(key.inner().len()).unwrap();
+            let value_len = ValueHeader::try_from(value.inner().len())
+                .unwrap()
+                .to_le_bytes();
+
+            data.push(key_len);
+            data.extend(value_len);
+            data.extend(key.inner().as_bytes());
+            data.extend(value.inner().as_bytes());
+        }
+
+        unsafe { ArchivedEntryData::load_unchecked(data.into_boxed_slice()) }
     }
 
     /// Convert into boxed bytes.
     #[inline]
-    pub fn into_boxed_bytes(self: Box<Self>) -> Box<[u8]> {
-        unsafe { Box::from_raw(Box::into_raw(self) as *mut [u8]) }
+    fn into_archive(archive: Box<Self>) -> Box<[u8]> {
+        unsafe { Box::from_raw(Box::into_raw(archive) as *mut [u8]) }
     }
 }
 
-impl LegacyEntryData {
+impl ArchivedEntryData {
     /// Check that the `entry type` block is valid and return the updated cursor position.
-    fn check_type(data: &[u8], cursor: usize) -> Result<usize, InvalidBytesError> {
+    fn check_type(data: &[u8], cursor: usize) -> Result<usize, AccessError> {
         match data[cursor..] {
-            [0, ..] => Err(InvalidBytesError::new(
-                cursor,
-                "entry type cannot have length zero",
-            )),
             [entry_type_len, ..] => {
                 let entry_type_start = cursor + 1;
                 let entry_type_end = entry_type_start + entry_type_len as usize;
-                let entry_type_bytes =
-                    data.get(entry_type_start..entry_type_end)
-                        .ok_or(InvalidBytesError::new(
-                            entry_type_start,
-                            "entry type shorter than header",
-                        ))?;
+                let entry_type_bytes = data
+                    .get(entry_type_start..entry_type_end)
+                    .ok_or(AccessError::InvalidEntryType)?;
 
-                if validate_ascii_identifier(entry_type_bytes).is_err() {
-                    return Err(InvalidBytesError::new(
-                        entry_type_start,
-                        "entry type contains non-ASCII chararacters or invalid ASCII characters",
-                    ));
-                }
+                from_utf8(entry_type_bytes)?;
 
                 Ok(entry_type_end)
             }
-            _ => Err(InvalidBytesError::new(cursor, "missing entry type")),
+            _ => Err(AccessError::InvalidEntryType),
         }
     }
 
     /// Check that a `data block` is valid. If there are no more blocks, return `Ok(None)`;
     /// otherwise, return the updated cursor position.
-    fn check_data_block(data: &[u8], cursor: usize) -> Result<Option<usize>, InvalidBytesError> {
+    fn check_data_block(
+        data: &[u8],
+        idx: usize,
+        cursor: usize,
+    ) -> Result<Option<usize>, AccessError> {
         match data[cursor..] {
-            [0, _, _, ..] => Err(InvalidBytesError::new(
-                cursor,
-                "key cannot have length zero",
-            )),
             [key_len, value_len_0, value_len_1, ..] => {
                 let value_len = u16::from_le_bytes([value_len_0, value_len_1]) as usize;
 
@@ -207,47 +221,20 @@ impl LegacyEntryData {
                 let value_block_start = key_block_start + key_len as usize;
                 let value_block_end = value_block_start + value_len;
 
-                let key_bytes =
-                    data.get(key_block_start..value_block_start)
-                        .ok_or(InvalidBytesError::new(
-                            key_block_start,
-                            "key block shorter than header",
-                        ))?;
-                let value_bytes =
-                    data.get(value_block_start..value_block_end)
-                        .ok_or(InvalidBytesError::new(
-                            value_block_start,
-                            "value block shorter than header",
-                        ))?;
+                let key_bytes = data
+                    .get(key_block_start..value_block_start)
+                    .ok_or(AccessError::InvalidIndex(idx))?;
+                let value_bytes = data
+                    .get(value_block_start..value_block_end)
+                    .ok_or(AccessError::InvalidIndex(idx))?;
 
-                if !serde_bibtex::token::is_balanced(value_bytes) {
-                    return Err(InvalidBytesError::new(
-                        value_block_start,
-                        "value has unbalanced `{}`",
-                    ));
-                }
-
-                if validate_ascii_identifier(key_bytes).is_err() {
-                    return Err(InvalidBytesError::new(
-                        key_block_start,
-                        "field key contains non-ASCII chararacters or invalid ASCII characters",
-                    ));
-                }
-
-                let _value = from_utf8(value_bytes).map_err(|e| {
-                    InvalidBytesError::new(
-                        value_block_start + e.valid_up_to(),
-                        "value block has invalid utf-8 starting at position",
-                    )
-                })?;
+                from_utf8(key_bytes)?;
+                from_utf8(value_bytes)?;
 
                 Ok(Some(value_block_end))
             }
             [] => Ok(None),
-            _ => Err(InvalidBytesError::new(
-                cursor,
-                "incomplete data block header",
-            )),
+            _ => Err(AccessError::IncompleteFields),
         }
     }
 
@@ -306,7 +293,7 @@ impl<'a> Iterator for LegacyFieldsIter<'a> {
     }
 }
 
-impl LegacyEntryData {
+impl ArchivedEntryData {
     pub fn raw_fields(&self) -> LegacyFieldsIter<'_> {
         let (_, data_blocks) = self.split_blocks();
         LegacyFieldsIter {
@@ -315,7 +302,7 @@ impl LegacyEntryData {
     }
 }
 
-impl EntryData for LegacyEntryData {
+impl EntryData for ArchivedEntryData {
     fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)> {
         let (_, data) = self.split_blocks();
         LegacyFieldsIter { remaining: data }
@@ -385,7 +372,7 @@ mod test {
         record_data.try_insert("a".repeat(255), "🍄").unwrap();
         record_data.try_insert("a", "b".repeat(65_535)).unwrap();
 
-        let raw_data = LegacyEntryData::from_entry_data(&record_data);
+        let raw_data = ArchivedEntryData::from_entry_data(&record_data);
 
         let mut record_data_clone =
             MutableEntryData::try_new(raw_data.entry_type().inner()).unwrap();
@@ -399,7 +386,7 @@ mod test {
         assert_eq!(record_data, record_data_clone);
         assert_eq!(
             raw_data.as_bytes(),
-            LegacyEntryData::from_entry_data(&record_data_clone).as_bytes()
+            ArchivedEntryData::from_entry_data(&record_data_clone).as_bytes()
         );
     }
 
@@ -412,7 +399,7 @@ mod test {
             }
             assert_eq!(data.fields().into_iter().count(), keys.len());
 
-            let raw_data = LegacyEntryData::from_entry_data(&data);
+            let raw_data = ArchivedEntryData::from_entry_data(&data);
             assert_eq!(raw_data.fields().into_iter().count(), keys.len());
 
             let new_data = MutableEntryData::from_entry_data(raw_data.as_ref());
@@ -436,7 +423,7 @@ mod test {
         record_data.try_insert("year", "2023").unwrap();
         record_data.try_insert("title", "The Title").unwrap();
 
-        let data = LegacyEntryData::from_entry_data(&record_data);
+        let data = ArchivedEntryData::from_entry_data(&record_data);
         let expected = vec![
             0, 7, b'a', b'r', b't', b'i', b'c', b'l', b'e', 5, 9, 0, b't', b'i', b't', b'l', b'e',
             b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e', b'a', b'r',
@@ -466,7 +453,7 @@ mod test {
                 b'a', b'r', b'2', b'0', b'2', b'3',
             ],
         ] {
-            assert!(LegacyEntryData::access(&data).is_ok());
+            assert!(ArchivedEntryData::access(&data).is_ok());
         }
     }
 
@@ -478,14 +465,8 @@ mod test {
             b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e', b'a', b'r',
             b'2', b'0', b'2', b'3',
         ];
-        let parsed = LegacyEntryData::access(&malformed_data);
-        assert!(matches!(
-            parsed,
-            Err(InvalidBytesError {
-                position: 0,
-                message: "invalid version"
-            })
-        ));
+        let parsed = ArchivedEntryData::access(&malformed_data);
+        assert_eq!(parsed, Err(AccessError::Unrecognized));
 
         // entry type is not valid utf-8
         let malformed_data = vec![
@@ -493,8 +474,8 @@ mod test {
             b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e', b'a', b'r',
             b'2', b'0', b'2', b'3',
         ];
-        let parsed = LegacyEntryData::access(&malformed_data);
-        assert!(matches!(parsed, Err(InvalidBytesError { position: 2, .. })));
+        let parsed = ArchivedEntryData::access(&malformed_data);
+        std::assert_matches!(parsed, Err(AccessError::InvalidUtf8(_)));
 
         // bad length header
         let malformed_data = vec![
@@ -502,28 +483,12 @@ mod test {
             b'e', b'T', b'h', b'e', b' ', b'T', b'i', b't', b'l', b'e', 4, 4, 0, b'y', b'e', b'a',
             b'r', b'2', b'0', b'2', b'3',
         ];
-        let parsed = LegacyEntryData::access(&malformed_data);
-        assert!(matches!(
-            parsed,
-            Err(InvalidBytesError {
-                position: 17,
-                message: "value block shorter than header"
-            })
-        ));
+        let parsed = ArchivedEntryData::access(&malformed_data);
+        assert_eq!(parsed, Err(AccessError::InvalidIndex(0)));
 
         // trailing bytes
         let malformed_data = vec![0, 7, b'a', b'r', b't', b'i', b'c', b'l', b'e', 1];
-        let parsed = LegacyEntryData::access(&malformed_data);
-        assert!(parsed.is_err());
-
-        // entry type cannot have length 0
-        let malformed_data = vec![0, 0];
-        let parsed = LegacyEntryData::access(&malformed_data);
-        assert!(parsed.is_err());
-
-        // field key cannot have length 0
-        let malformed_data = vec![0, 1, b'a', 0, 0, 0];
-        let parsed = LegacyEntryData::access(&malformed_data);
+        let parsed = ArchivedEntryData::access(&malformed_data);
         assert!(parsed.is_err());
     }
 }
