@@ -2,7 +2,7 @@
 //!
 //! This is the legacy `v0` data format originally used by Autobib versions `< 0.7.0`.
 //!
-//! ## Format
+//! ## Memory format
 //!
 //! The data is stored as a sequence of blocks.
 //! ```txt

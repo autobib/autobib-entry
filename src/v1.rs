@@ -1,6 +1,6 @@
 //! # `v1` zero-copy deserialization format
 //!
-//! This is the `v1` data format originally used by Autobib.
+//! This is the `v1` data format currently used by Autobib.
 //!
 //! ## Memory format
 //!
