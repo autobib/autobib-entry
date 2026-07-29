@@ -136,7 +136,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("legacy access large unchecked", |b| {
         b.iter(|| unsafe {
             black_box(
-                v0::ArchivedEntryData::access_unchecked(black_box(&legacy_xl_bytes)).get_field("u7"),
+                v0::ArchivedEntryData::access_unchecked(black_box(&legacy_xl_bytes))
+                    .get_field("u7"),
             )
         })
     });

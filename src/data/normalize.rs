@@ -7,10 +7,15 @@ use serde::Deserialize;
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Normalization {
+    /// Normalize whitespace by replacing contiguous non-escaped whitespace blocks by a single Ascii
+    /// space.
     #[serde(default)]
     pub normalize_whitespace: bool,
+    /// Attempt to set the `eprint` and `eprinttype` BibTeX fields using the value of a provided
+    /// BibTeX field from the `keys` iterator.
     #[serde(default)]
     pub set_eprint: Vec<String>,
+    /// Strip trailing numbered series indicators, such as the (2) in `Ann. Math. (2)`
     #[serde(default)]
     pub strip_journal_series: bool,
 }

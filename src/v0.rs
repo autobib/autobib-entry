@@ -35,8 +35,6 @@
 //! `entry_type` can be any valid UTF-8.
 use std::str::{from_utf8, from_utf8_unchecked};
 
-use thiserror::Error;
-
 use crate::error::AccessError;
 use crate::{
     data::{Archive, EntryData},
@@ -63,38 +61,38 @@ pub(crate) type EntryTypeHeader = u8;
 #[repr(transparent)]
 pub struct ArchivedEntryData([u8]);
 
-pub fn archive<D: EntryData + ?Sized>(entry_data: &D) -> Box<[u8]> {
-    let raw_len = 1  // the size of the binary version header
-            + (1 + entry_data.entry_type().inner().len()) // the entry type, plus the 1-byte header
-            + entry_data // the key value pairs, plus the 3-byte header
-                .fields()
-                .into_iter()
-                .map(|(k, v)| 3 + k.inner().len() + v.inner().len())
-                .sum::<usize>();
+// pub fn archive<D: EntryData + ?Sized>(entry_data: &D) -> Box<[u8]> {
+//     let raw_len = 1  // the size of the binary version header
+//             + (1 + entry_data.entry_type().inner().len()) // the entry type, plus the 1-byte header
+//             + entry_data // the key value pairs, plus the 3-byte header
+//                 .fields()
+//                 .into_iter()
+//                 .map(|(k, v)| 3 + k.inner().len() + v.inner().len())
+//                 .sum::<usize>();
 
-    let mut data = Vec::with_capacity(raw_len);
+//     let mut data = Vec::with_capacity(raw_len);
 
-    data.push(0);
+//     data.push(0);
 
-    let entry_type = entry_data.entry_type();
-    let entry_type_len = EntryTypeHeader::try_from(entry_type.inner().len()).unwrap();
-    data.push(entry_type_len);
-    data.extend(entry_type.inner().as_bytes());
+//     let entry_type = entry_data.entry_type();
+//     let entry_type_len = EntryTypeHeader::try_from(entry_type.inner().len()).unwrap();
+//     data.push(entry_type_len);
+//     data.extend(entry_type.inner().as_bytes());
 
-    for (key, value) in entry_data.fields() {
-        let key_len = KeyHeader::try_from(key.inner().len()).unwrap();
-        let value_len = ValueHeader::try_from(value.inner().len())
-            .unwrap()
-            .to_le_bytes();
+//     for (key, value) in entry_data.fields() {
+//         let key_len = KeyHeader::try_from(key.inner().len()).unwrap();
+//         let value_len = ValueHeader::try_from(value.inner().len())
+//             .unwrap()
+//             .to_le_bytes();
 
-        data.push(key_len);
-        data.extend(value_len);
-        data.extend(key.inner().as_bytes());
-        data.extend(value.inner().as_bytes());
-    }
+//         data.push(key_len);
+//         data.extend(value_len);
+//         data.extend(key.inner().as_bytes());
+//         data.extend(value.inner().as_bytes());
+//     }
 
-    data.into_boxed_slice()
-}
+//     data.into_boxed_slice()
+// }
 
 impl ToOwned for ArchivedEntryData {
     type Owned = Box<Self>;
@@ -293,15 +291,6 @@ impl<'a> Iterator for LegacyFieldsIter<'a> {
     }
 }
 
-impl ArchivedEntryData {
-    pub fn raw_fields(&self) -> LegacyFieldsIter<'_> {
-        let (_, data_blocks) = self.split_blocks();
-        LegacyFieldsIter {
-            remaining: data_blocks,
-        }
-    }
-}
-
 impl EntryData for ArchivedEntryData {
     fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)> {
         let (_, data) = self.split_blocks();
@@ -312,49 +301,6 @@ impl EntryData for ArchivedEntryData {
         let (type_block, _) = self.split_blocks();
         unsafe { EntryTypeRef(from_utf8_unchecked(type_block.get_unchecked(1..))) }
     }
-}
-
-#[derive(Error, Debug, PartialEq)]
-#[error("Invalid bytes: error at position `{position}`: {message}")]
-pub struct InvalidBytesError {
-    pub position: usize,
-    pub message: &'static str,
-}
-
-impl InvalidBytesError {
-    pub fn new(position: usize, message: &'static str) -> Self {
-        Self { position, message }
-    }
-}
-
-#[derive(Error, Debug, PartialEq)]
-pub enum RecordDataError {
-    #[error("Identifier contains invalid character")]
-    ContainsInvalidChar,
-
-    #[error(
-        "Key has invalid size {0}; must be at least 1 and at most {max}",
-        max = KeyHeader::MAX
-    )]
-    KeyInvalidLength(usize),
-
-    #[error(
-        "Entry type has invalid size {0}; must be at least 1 and at most {max}",
-        max = EntryTypeHeader::MAX
-    )]
-    EntryTypeInvalidLength(usize),
-
-    #[error("Entry type must not be one of the reserved names: comment, preamble, string")]
-    EntryTypeReserved,
-
-    #[error("Value has invalid size {0}; must be at most {max}", max = ValueHeader::MAX)]
-    ValueInvalidLength(usize),
-
-    #[error("Value does not contain balanced `{{ }}` braces")]
-    ValueNotBalanced,
-
-    #[error("Invalid bytes: `{0}`")]
-    InvalidBytes(#[from] InvalidBytesError),
 }
 
 #[cfg(test)]

@@ -1,14 +1,12 @@
-//! # Entry data types
+//! # Entry data
 //!
 //! This module contains the core abstractions over entry data.
 //!
 //! - [`EntryData`]: a trait representing types which encapsulate the data content of a single BibTeX entry.
 //! - [`MutableEntryData`]: an [`EntryData`] implementation which also permits performant mutation.
-//!   Used to construct typed entry data.
-//! - [`ArchivedEntryData`]: a zero-copy deserialization format used for accessing archived data and
-//!   for archiving entry data.
-//! - [`archive`]: a convenience function to convert an [`EntryData`] directly into the archived
-//!   archived format.
+//!   This is the easiest way to construct entry data.
+//! - [`archive`]: a convenience function to convert an [`EntryData`] directly into an archived
+//!   format.
 //! - [`EntryDataSerializer`]: a wrapper around an [`EntryData`] implementation which implements
 //!   [`serde::Serialize`] to allow serialization into other serde-compatible formats.
 mod mutable;
@@ -99,6 +97,13 @@ pub fn archive<A: Archive + ?Sized, D: EntryData>(data: D) -> Box<[u8]> {
 
 /// Types that can be converted to raw bytes, which can be deserialized from raw bytes, and for
 /// which data can be immutably read from a byte slice.
+/// 
+/// # Safety
+///
+/// The implementation is required to guarantee that, if the [`validate`](Self::validate) function
+/// returns ok, or for bytes produced by [`as_bytes`](Self::as_bytes) or
+/// [`into_archive`](Self::into_archive), that the [`load_unchecked`](Self::load_unchecked) and
+/// [`access_unchecked`](Self::access_unchecked) functions must not result in undefined behaviour.
 pub unsafe trait Archive: ToOwned {
     /// Obtain the underlying bytes.
     fn as_bytes(&self) -> &[u8];
@@ -150,7 +155,7 @@ pub unsafe trait Archive: ToOwned {
     /// The default implementation first [validates](Self::validate) the byte buffer and then calls
     /// [`access_unchecked`](Self::access_unchecked).
     fn access(bytes: &[u8]) -> Result<&Self, AccessError> {
-        Self::validate(&bytes)?;
+        Self::validate(bytes)?;
         unsafe { Ok(Self::access_unchecked(bytes)) }
     }
 }

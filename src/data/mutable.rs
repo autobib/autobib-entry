@@ -9,7 +9,7 @@ use super::{
     normalize::{Normalize, normalize_whitespace_str},
 };
 use crate::{
-    error::{AccessError, DataError},
+    error::DataError,
     ident::{
         EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef,
         StandardEntryType, StandardFieldKey,
@@ -64,16 +64,17 @@ impl MutableEntryData {
     ///
     /// In order for the bytes to be recognized, you must load a feature of the form `v*`. For
     /// example, loading the feature `v1` means this type can be loaded from any bytes in the `v1`
-    /// format. If no features are loaded, then this will always return
-    /// [`AccessError::Unrecognized`].
-    pub fn from_archive_universal(bytes: &[u8]) -> Result<Self, AccessError> {
+    /// format.
+    #[cfg(any(feature = "v0", feature = "v1"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "v0", feature = "v1"))))]
+    pub fn from_archive_universal(bytes: &[u8]) -> Result<Self, crate::error::AccessError> {
         use crate::data::Archive;
-        let me = match bytes.get(0) {
+        let me = match bytes.first() {
             #[cfg(feature = "v0")]
             Some(0) => Self::from_entry_data(crate::v0::ArchivedEntryData::access(bytes)?),
             #[cfg(feature = "v1")]
             Some(1) => Self::from_entry_data(crate::v1::ArchivedEntryData::access(bytes)?),
-            _ => return Err(AccessError::Unrecognized),
+            _ => return Err(crate::error::AccessError::Unrecognized),
         };
         Ok(me)
     }
@@ -237,9 +238,14 @@ enum EPrintState<S> {
     MissingKey,
 }
 
+/// Set a field key-value pair.
+///
+/// This type can be parsed from a string of the form `key = {value}`
 #[derive(Debug, Clone)]
 pub struct SetFieldCommand {
+    /// The field key.
     pub field_key: FieldKey,
+    /// The field value.
     pub field_value: FieldValue,
 }
 
@@ -262,14 +268,21 @@ impl FromStr for SetFieldCommand {
     }
 }
 
+/// Edit an entry.
 #[derive(Debug, Clone, Default)]
 pub struct EntryEditCommand {
+    /// Set the entry type.
     pub update_entry_type: Option<EntryType>,
+    /// Delete a field.
     pub delete_field: Vec<FieldKey>,
+    /// Set a field value.
     pub set_field: Vec<SetFieldCommand>,
 }
 
 impl EntryEditCommand {
+    /// Returns if this edit command will definitely do nothing.
+    ///
+    /// For specific entry data, this command may still be a no-op.
     pub fn is_identity(&self) -> bool {
         self.set_field.is_empty()
             && self.delete_field.is_empty()
@@ -288,6 +301,7 @@ pub enum ConflictResolved<T = FieldValue> {
 }
 
 impl MutableEntryData {
+    /// Apply the provided edit, returning if the underlying data changed.
     pub fn edit(&mut self, cmd: &EntryEditCommand) -> bool {
         let mut changed = false;
 

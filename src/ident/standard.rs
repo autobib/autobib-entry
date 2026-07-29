@@ -8,35 +8,76 @@ use super::{EntryType, EntryTypeRef, FieldKey, FieldKeyRef};
 /// Note that this type can be converted into an [`EntryType`] or an [`EntryTypeRef<'static>`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StandardEntryType {
+    /// An article in a journal, magazine, newspaper, or other periodical which forms a self-contained
+    /// unit with its own title.
     Article,
+    /// A single-volume book with one or more authors where the authors share credit for the work as a whole.
     Book,
+    /// A multi-volume [`@book`](Self::Book).
     MvBook,
+    /// A part of a book which forms a self-contained unit with its own title. Note
     InBook,
+    /// This type is similar to [`@inbook`](Self::InBook) but intended for works originally published as a stand-alone book.
     BookInBook,
+    /// Supplemental material in a [`@book`](Self::Book).
     SuppBook,
+    /// A book-like work without a formal publisher or sponsoring institution.
     Booklet,
+    /// A single-volume collection with multiple, self-contained contributions by distinct authors which have their own title.
     Collection,
+    /// A multi-volume [`@collection`](Self::Collection).
     MvCollection,
+    /// A contribution to a collection which forms a self-contained unit with a distinct author and title.
     InCollection,
+    /// Supplemental material in a [`@collection`](Self::Collection)
     SuppCollection,
+    /// A data set or a similar collection of (mostly) raw data.
     Dataset,
+    /// Technical or other documentation, not necessarily in printed form.
     Manual,
+    /// A fallback type for entries which do not fit into any other category.
     #[default]
     Misc,
+    /// An online resource.
     Online,
+    /// A patent or patent request
     Patent,
+    /// A complete issue of a periodical, such as a special issue of a journal.
     Periodical,
+    /// Supplemental material in a [`periodical`](Self::Periodical).
     SuppPeriodical,
+    /// A single-volume conference proceedings
     Proceedings,
+    /// A multi-volume [`@proceedings`](Self::Proceedings) entry.
     MvProceedings,
+    /// An article in a conference proceedings
     InProceedings,
+    /// A single-volume work of reference such as an encyclopedia or a dictionary.
     Reference,
+    /// A multi-volume [`@reference`](Self::Reference) entry.
     MvReference,
+    /// An article in a work of reference.
     InReference,
+    /// A technical report, research report, or white paper published by a university or some other institution.
     Report,
+    /// Computer software.
     Software,
+    /// A thesis written for an educational institution to satisfy the requirements for a degree.
     Thesis,
+    /// A work with an author and a title which has not been formally published, such as a
+    /// manuscript or the script of a talk.
     Unpublished,
+    // TODO: add a normalization for these aliases
+    /// An alias for [`@inproceedings`](Self::InProceedings).
+    Conference,
+    /// An alias for [`@online`](Self::Online).
+    Electronic,
+    /// Similar to [`@thesis`](Self::Thesis) with a special type field.
+    MastersThesis,
+    /// Similar to [`@thesis`](Self::Thesis) with a special type field.
+    PhdThesis,
+    /// Similar to [`@report`](Self::Report) with a special type field.
+    TechReport,
 }
 
 impl StandardEntryType {
@@ -71,6 +112,11 @@ impl StandardEntryType {
             Self::Software => "software",
             Self::Thesis => "thesis",
             Self::Unpublished => "unpublished",
+            Self::Conference => "conference",
+            Self::Electronic => "electronic",
+            Self::MastersThesis => "mastersthesis",
+            Self::PhdThesis => "phdthesis",
+            Self::TechReport => "techreport",
         }
     }
 
@@ -114,6 +160,11 @@ static STANDARD_ENTRY_TYPE_NAMES: phf::Map<&'static str, StandardEntryType> = ph
     "software" => StandardEntryType::Software,
     "thesis" => StandardEntryType::Thesis,
     "unpublished" => StandardEntryType::Unpublished,
+    "conference" => StandardEntryType::Conference,
+    "electronic" => StandardEntryType::Electronic,
+    "mastersthesis" => StandardEntryType::MastersThesis,
+    "phdthesis" => StandardEntryType::PhdThesis,
+    "techreport" => StandardEntryType::TechReport,
 };
 
 impl From<StandardEntryType> for EntryType {
@@ -134,100 +185,212 @@ impl<'a> From<StandardEntryType> for EntryTypeRef<'a> {
 /// Note that this type can be converted into a [`FieldKey`] or a [`FieldKeyRef<'static>`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandardFieldKey {
-    // standard
+    /// An abstract.
     Abstract,
+    /// Miscellaneous bibliographic data to be printed at the end of the entry.
     Addendum,
+    /// The author(s) of an afterword to the work.
     Afterword,
+    /// This field may be useful when implementing a style for annotated bibliographies.
     Annotation,
+    /// The author(s) of annotations to the work.
     Annotator,
+    /// The authors of the [`title`](Self::Title).
     Author,
+    /// The type of author.
     AuthorType,
+    /// The author(s) of the [`booktitle`](Self::BookTitle).
     BookAuthor,
+    /// If the work is published as part of another one, this is the pagination scheme of the enclosing work.
     BookPagination,
+    /// The subtitle related to the [`booktitle`](Self::BookTitle).
     BookSubtitle,
+    /// If the [`title`](Self::Title) field indicates the title of a work which is part of a larger publication, the title of the main work is given in this field.
     BookTitle,
+    /// An annex to the [`booktitle`](Self::BookTitle),
     BookTitleAddon,
+    /// A chapter or section or any other unit of a work.
     Chapter,
+    /// The author(s) of a commentary to the work
     Commentator,
+    /// The publication date.
     Date,
+    /// The Digital Object Identifier of the work.
     Doi,
+    /// The edition of a printed publication.
     Edition,
+    /// The editor(s) of the [`title`](Self::Title), [`booktitle`](Self::BookTitle), or [`maintitle`](Self::MainTitle), depending on the entry type.
     Editor,
+    /// A secondary editor performing a different editorial role.
     EditorA,
+    /// Another secondary editor performing a different editorial role.
     EditorB,
+    /// Another secondary editor performing a different editorial role.
     EditorC,
+    /// The type of editorial role performed by the [`editor`](Self::Editor).
     EditorType,
+    /// Like [`editortype`](Self::EditorType) but referring to [`editora`](Self::EditorA).
     EditorAType,
+    /// Like [`editortype`](Self::EditorType) but referring to [`editorb`](Self::EditorB).
     EditorBType,
+    /// Like [`editortype`](Self::EditorType) but referring to [`editorc`](Self::EditorC).
     EditorCType,
+    /// The electronic identifier of an [`@article`](StandardEntryType::Article) or chapter-like section of a larger work often called ‘article number’, ‘paper number’ or the like.
     Eid,
+    /// A subtype of an entry type.
     EntrySubType,
+    /// The electronic identifier of an online publication.
     EPrint,
+    /// Additional information related to the resource indicated by the
+    /// [`eprinttype`](Self::EPrintType).
     EPrintClass,
+    /// The type of [`eprint`](Self::EPrint) identifier, e. g., the name of the archive, repository, service, or system the [`eprint`](Self::EPrint) field refers to.
     EPrintType,
+    /// The date of a conference, a symposium, or some other event in
+    /// [`@proceedings`](StandardEntryType::Proceedings) or [`@inproceedings`](StandardEntryType::InProceedings) or
     EventDate,
+    /// The title of a conference, a symposium, or some other event in
+    /// [`@proceedings`](StandardEntryType::Proceedings) or [`@inproceedings`](StandardEntryType::InProceedings) or
     EventTitle,
+    /// An annex to a [`eventtitle`](Self::EventTitle).
     EventTitleAddon,
+    /// A local link to a pdf or other version of the work.
     File,
+    /// The author(s) of a foreword to the work.
     Foreward,
+    /// The holder(s) of a [`@patent`](StandardEntryType::Patent), if different from the
+    /// [`author`](Self::Author).
     Holder,
+    /// A publication notice for unusual publications which do not fit into any of the common categories.
     HowPublished,
+    /// A title to use for indexing instead of the regular [`title`](Self::Title) field.
     IndexTitle,
+    /// The name of a university or some other institution, depending on the entry type.
     Institution,
+    /// The author(s) of an introduction to the work.
     Introduction,
+    /// The International Standard Audiovisual Number of an audiovisual work.
+    ISAN,
+    /// The International Standard Book Number of a book.
     ISBN,
+    /// The International Standard Music Number for printed music such as musical scores.
     ISMN,
+    /// The International Standard Technical Report Number of a technical report.
     ISRN,
+    /// The International Standard Serial Number of a periodical.
     ISSN,
+    /// The issue of a journal.
     Issue,
+    /// The subtitle of a specific issue of a journal or other periodical.
     IssueSubtitle,
+    /// The title of a specific issue of a journal or other periodical.
     IssueTitle,
+    /// An annex to the [`issuetitle`](Self::IssueTitle).
     IssueTitleAddon,
+    /// The International Standard Work Code of a musical work.
     ISWC,
+    /// The subtitle of a journal, a newspaper, or some other periodical.
     JournalSubtitle,
+    /// The name of a journal, a newspaper, or some other periodical.
     JournalTitle,
+    /// An annex to the [`journaltitle`](Self::JournalTitle).
     JournalTitleAddon,
+    /// A designation to be used by the citation style as a substitute for the regular label if
+    /// any data required to generate the regular label is missing.
     Label,
+    /// The language(s) of the work.
     Language,
+    /// This field may be useful to record information such as a library name and a call number.
     Library,
+    /// The place(s) of publication, i.e., the location of the [`publisher`](Self::Publisher) or [`institution`](Self::Institution),
+    /// depending on the entry type.
     Location,
+    /// The subtitle related to the [`maintitle`](Self::MainTitle).
     MainSubtitle,
+    /// The main title of a multi-volume book,
     MainTitle,
+    /// An annex to the [`maintitle`](Self::MainTitle).
     MainTitleAddon,
+    /// The publication month.
     Month,
+    /// An addon to be printed immediately after the author name in the bibliography.
     NameAddon,
+    /// Miscellaneous bibliographic data which does not fit into any other field.
     Note,
+    /// The number of a journal or the volume/number of a book in a [`series`](Self::Series).
     Number,
+    /// The organization(s) that published a [`@manual`](StandardEntryType::Manual) or an [`@online`](StandardEntryType::Online) resource, or sponsored
+    /// a conference.
     Organization,
+    /// If the work is a translation, a reprint, or something similar, the publication date of
+    /// the original edition.
     OrigDate,
+    /// If the work is a translation, the language(s) of the original work..
     OrigLanguage,
+    /// If the work is a translation, a reprint, or something similar, the
+    /// [`location`](Self::Location) of the original edition.
+    OrigLocation,
+    /// If the work is a translation, a reprint, or something similar, the
+    /// [`publisher`](Self::Publisher) of the original edition.
     OrigPublisher,
+    /// If the work is a translation, the [`title`](Self::Title) of the original work.
     OrigTitle,
+    /// One or more page numbers or page ranges
     Pages,
+    /// The total number of pages of the work.
     PageTotal,
+    /// The pagination of the work.
     Pagination,
+    /// The number of a partial volume, for books only and not journals.
     Part,
+    /// The name(s) of the publisher(s).
     Publisher,
+    /// The publication state of the work, e. g., ‘in press’.
     PubState,
+    /// The title of a reprint of the work.
     ReprintTitle,
+    /// The name of a publication series, such as “Studies in …”, or the number of a journal
+    /// series.
     Series,
+    /// The author(s) of the work, given in an abbreviated form.
     ShortAuthor,
+    /// The editor(s) of the work, given in an abbreviated form.
     ShortEditor,
+    /// A special designation to be used by the citation style instead of the usual label.
     Shorthand,
+    /// An introduction for shorthands in the first citation.
+    ShorthandIntro,
+    /// A short version or an acronym of the [`journaltitle`](Self::JournalTitle).
     ShortJournal,
+    /// A short version or an acronym of the [`series`](Self::Series) field.
     ShortSeries,
+    /// The title in an abridged form.
     ShortTitle,
+    /// The subtitle of the work.
     Subtitle,
+    /// The title of the work.
     Title,
+    /// An annex to the [`title`](Self::Title).
     TitleAddon,
+    /// The translator(s) of the [`title`](Self::Title) or [`booktitle`](Self::BookTitle), depending on the entry type.
     Translator,
+    /// The type of a [`@manual`](StandardEntryType::Manual), patent, report, or thesis.
     Type,
+    /// The URL of an online publication.
     Url,
+    /// The access date of the address specified in the [`url`](Self::Url) field.
     UrlDate,
+    /// The location of a conference, a symposium, or some other event in
+    /// [`@proceedings`](StandardEntryType::Proceedings)
+    /// and [`@inproceedings`](StandardEntryType::InProceedings) entries.
     Venue,
+    /// The revision number of a piece of software, a manual, etc.
     Version,
+    /// The volume of a multi-volume book or a periodical.
     Volume,
+    /// The total number of volumes of a multi-volume work.
     Volumes,
+    /// The year of publication.
     Year,
 
     // aliases
@@ -247,30 +410,6 @@ pub enum StandardFieldKey {
     PrimaryClass,
     /// Alias for [`Self::Institution`]
     School,
-
-    // special
-    Crossref,
-    EntrySet,
-    Execute,
-    Gender,
-    LangId,
-    LangIdOpts,
-    Ids,
-    IndexSortTitle,
-    Keywords,
-    Options,
-    Presort,
-    Related,
-    RelatedOptions,
-    RelatedTypes,
-    RelatedString,
-    SortKey,
-    SortName,
-    SortShorthand,
-    SortTitle,
-    SortYear,
-    XData,
-    XRef,
 }
 
 impl StandardFieldKey {
@@ -317,6 +456,7 @@ impl StandardFieldKey {
             Self::IndexTitle => "indextitle",
             Self::Institution => "institution",
             Self::Introduction => "introduction",
+            Self::ISAN => "isan",
             Self::ISBN => "isbn",
             Self::ISMN => "ismn",
             Self::ISRN => "isrn",
@@ -343,6 +483,7 @@ impl StandardFieldKey {
             Self::Organization => "organization",
             Self::OrigDate => "origdate",
             Self::OrigLanguage => "origlanguage",
+            Self::OrigLocation => "origlocation",
             Self::OrigPublisher => "origpublisher",
             Self::OrigTitle => "origtitle",
             Self::Pages => "pages",
@@ -356,6 +497,7 @@ impl StandardFieldKey {
             Self::ShortAuthor => "shortauthor",
             Self::ShortEditor => "shorteditor",
             Self::Shorthand => "shorthand",
+            Self::ShorthandIntro => "shorthandintro",
             Self::ShortJournal => "shortjournal",
             Self::ShortSeries => "shortseries",
             Self::ShortTitle => "shorttitle",
@@ -379,28 +521,6 @@ impl StandardFieldKey {
             Self::Pdf => "pdf",
             Self::PrimaryClass => "primaryclass",
             Self::School => "school",
-            Self::Crossref => "crossref",
-            Self::EntrySet => "entryset",
-            Self::Execute => "execute",
-            Self::Gender => "gender",
-            Self::LangId => "langid",
-            Self::LangIdOpts => "langidopts",
-            Self::Ids => "ids",
-            Self::IndexSortTitle => "indexsorttitle",
-            Self::Keywords => "keywords",
-            Self::Options => "options",
-            Self::Presort => "presort",
-            Self::Related => "related",
-            Self::RelatedOptions => "relatedoptions",
-            Self::RelatedTypes => "relatedtypes",
-            Self::RelatedString => "relatedstring",
-            Self::SortKey => "sortkey",
-            Self::SortName => "sortname",
-            Self::SortShorthand => "sortshorthand",
-            Self::SortTitle => "sorttitle",
-            Self::SortYear => "sortyear",
-            Self::XData => "xdata",
-            Self::XRef => "xref",
         }
     }
 
@@ -420,7 +540,6 @@ impl StandardFieldKey {
             Self::Location => Some(Self::Address),
             Self::Annotation => Some(Self::Annote),
             Self::JournalTitle => Some(Self::Journal),
-            Self::SortKey => Some(Self::Key),
             e if e.is_bibtex() => Some(e),
             _ => None,
         }
@@ -433,7 +552,6 @@ impl StandardFieldKey {
             Self::Annote => Self::Annotation,
             Self::ArchivePrefix => Self::EPrintType,
             Self::Journal => Self::JournalTitle,
-            Self::Key => Self::SortKey,
             Self::Pdf => Self::File,
             Self::PrimaryClass => Self::EPrintClass,
             Self::School => Self::Institution,
@@ -456,35 +574,6 @@ impl StandardFieldKey {
         )
     }
 
-    /// Whether BibLaTeX defines this type to be a special type.
-    pub fn is_special(self) -> bool {
-        matches!(
-            self,
-            Self::Crossref
-                | Self::EntrySet
-                | Self::Execute
-                | Self::Gender
-                | Self::LangId
-                | Self::LangIdOpts
-                | Self::Ids
-                | Self::IndexSortTitle
-                | Self::Keywords
-                | Self::Options
-                | Self::Presort
-                | Self::Related
-                | Self::RelatedOptions
-                | Self::RelatedTypes
-                | Self::RelatedString
-                | Self::SortKey
-                | Self::SortName
-                | Self::SortShorthand
-                | Self::SortTitle
-                | Self::SortYear
-                | Self::XData
-                | Self::XRef
-        )
-    }
-
     /// Whether this is one of the BibTeX-compatible types.
     pub fn is_bibtex(self) -> bool {
         matches!(
@@ -494,7 +583,6 @@ impl StandardFieldKey {
                 | Self::Author
                 | Self::BookTitle
                 | Self::Chapter
-                | Self::Crossref
                 | Self::Edition
                 | Self::Editor
                 | Self::HowPublished
@@ -570,6 +658,7 @@ static STANDARD_FIELD_KEY_NAMES: phf::Map<&'static str, StandardFieldKey> = phf_
     "indextitle" => StandardFieldKey::IndexTitle,
     "institution" => StandardFieldKey::Institution,
     "introduction" => StandardFieldKey::Introduction,
+    "isan" => StandardFieldKey::ISAN,
     "isbn" => StandardFieldKey::ISBN,
     "ismn" => StandardFieldKey::ISMN,
     "isrn" => StandardFieldKey::ISRN,
@@ -596,6 +685,7 @@ static STANDARD_FIELD_KEY_NAMES: phf::Map<&'static str, StandardFieldKey> = phf_
     "organization" => StandardFieldKey::Organization,
     "origdate" => StandardFieldKey::OrigDate,
     "origlanguage" => StandardFieldKey::OrigLanguage,
+    "origlocation" => StandardFieldKey::OrigLocation,
     "origpublisher" => StandardFieldKey::OrigPublisher,
     "origtitle" => StandardFieldKey::OrigTitle,
     "pages" => StandardFieldKey::Pages,
@@ -609,6 +699,7 @@ static STANDARD_FIELD_KEY_NAMES: phf::Map<&'static str, StandardFieldKey> = phf_
     "shortauthor" => StandardFieldKey::ShortAuthor,
     "shorteditor" => StandardFieldKey::ShortEditor,
     "shorthand" => StandardFieldKey::Shorthand,
+    "shorthandintro" => StandardFieldKey::ShorthandIntro,
     "shortjournal" => StandardFieldKey::ShortJournal,
     "shortseries" => StandardFieldKey::ShortSeries,
     "shorttitle" => StandardFieldKey::ShortTitle,
@@ -632,28 +723,6 @@ static STANDARD_FIELD_KEY_NAMES: phf::Map<&'static str, StandardFieldKey> = phf_
     "pdf" => StandardFieldKey::Pdf,
     "primaryclass" => StandardFieldKey::PrimaryClass,
     "school" => StandardFieldKey::School,
-    "crossref" => StandardFieldKey::Crossref,
-    "entryset" => StandardFieldKey::EntrySet,
-    "execute" => StandardFieldKey::Execute,
-    "gender" => StandardFieldKey::Gender,
-    "langid" => StandardFieldKey::LangId,
-    "langidopts" => StandardFieldKey::LangIdOpts,
-    "ids" => StandardFieldKey::Ids,
-    "indexsorttitle" => StandardFieldKey::IndexSortTitle,
-    "keywords" => StandardFieldKey::Keywords,
-    "options" => StandardFieldKey::Options,
-    "presort" => StandardFieldKey::Presort,
-    "related" => StandardFieldKey::Related,
-    "relatedoptions" => StandardFieldKey::RelatedOptions,
-    "relatedtypes" => StandardFieldKey::RelatedTypes,
-    "relatedstring" => StandardFieldKey::RelatedString,
-    "sortkey" => StandardFieldKey::SortKey,
-    "sortname" => StandardFieldKey::SortName,
-    "sortshorthand" => StandardFieldKey::SortShorthand,
-    "sorttitle" => StandardFieldKey::SortTitle,
-    "sortyear" => StandardFieldKey::SortYear,
-    "xdata" => StandardFieldKey::XData,
-    "xref" => StandardFieldKey::XRef,
 };
 
 #[cfg(test)]

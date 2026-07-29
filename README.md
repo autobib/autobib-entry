@@ -12,7 +12,6 @@ There are multiple formats:
 - [`v1`](#v1-memory-layout) - current format
 - [`v0`](#v0-memory-layout) - legacy format used by Autobib databases `<= 4`, versions `< 0.7.0` (slightly more compact, but with much slower reads, in particular `O(n)` field reads)
 
-
 ## `v1` memory layout
 
 The layout of the data in memory is as follows:
@@ -65,6 +64,7 @@ All `u32` are stored as little-endian bytes.
   Rearrangement of field keys and field values is permitted since the indices and lengths are absolute and therefore remain valid.
 - Store if `DATA` is ASCII for faster initialization.
 - Allow 'unpacked' versions with flag (packed default), in which case need to check validity of char boundaries on both sides.
+- Add basic in-place mutation.
 
 # `v0`
 
