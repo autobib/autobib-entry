@@ -249,6 +249,12 @@ impl ArchivedEntryData {
     pub fn from_entry_data<D: EntryData + ?Sized>(data: &D) -> Box<ArchivedEntryData> {
         unsafe { ArchivedEntryData::load_unchecked(archive(data)) }
     }
+
+    /// Convert into boxed bytes.
+    #[inline]
+    pub fn into_boxed_bytes(self: Box<Self>) -> Box<[u8]> {
+        unsafe { Box::from_raw(Box::into_raw(self) as *mut [u8]) }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

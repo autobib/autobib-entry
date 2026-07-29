@@ -95,10 +95,12 @@ pub fn archive<D: EntryData + ?Sized>(entry_data: &D) -> Box<[u8]> {
 }
 
 impl LegacyEntryData {
+    /// Obtain the underlying bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
+    /// Check that raw bytes are in the memory format defined in the module level documentation.
     pub fn validate(bytes: &[u8]) -> Result<(), InvalidBytesError> {
         match bytes {
             [0, ..] => {
@@ -145,8 +147,15 @@ impl LegacyEntryData {
         unsafe { std::mem::transmute(b) }
     }
 
+    /// Construct the byte representation from any entry data implementation.
     pub fn from_entry_data<D: EntryData + ?Sized>(data: &D) -> Box<LegacyEntryData> {
         unsafe { LegacyEntryData::load_unchecked(archive(data)) }
+    }
+
+    /// Convert into boxed bytes.
+    #[inline]
+    pub fn into_boxed_bytes(self: Box<Self>) -> Box<[u8]> {
+        unsafe { Box::from_raw(Box::into_raw(self) as *mut [u8]) }
     }
 }
 
