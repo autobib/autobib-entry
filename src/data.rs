@@ -5,9 +5,9 @@
 //! - [`EntryData`]: a trait representing types which encapsulate the data content of a single BibTeX entry.
 //! - [`MutableEntryData`]: an [`EntryData`] implementation which also permits performant mutation.
 //!   This is the easiest way to construct entry data.
-//! - [`archive`]: a convenience function to convert an [`EntryData`] directly into an archived
-//!   format.
-//! - [`EntryDataSerializer`]: a wrapper around an [`EntryData`] implementation which implements
+//! - [`archive`]: a convenience function to convert an [`EntryData`] directly into a byte buffer
+//!   in the appropriate format.
+//! - [`EntryDataSerializer`]: a wrapper around any [`EntryData`] implementation which implements
 //!   [`serde::Serialize`] to allow serialization into other serde-compatible formats.
 mod mutable;
 mod normalize;
@@ -31,7 +31,7 @@ pub use self::{
 
 /// This trait represents types which encapsulate the data content of a single BibTeX entry.
 pub trait EntryData {
-    /// Iterate over `(key, value)` pairs in order.
+    /// Iterate over `(key, value)` pairs, ordered by field key.
     fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)>;
 
     /// Get the entry type.
@@ -39,8 +39,7 @@ pub trait EntryData {
 
     /// Count the number of fields.
     ///
-    /// The default implementation uses `self.fields().into_iter().count()`. Implementations
-    /// should provide a more performative alternative when possible.
+    /// The default implementation uses `self.fields().into_iter().count()`.
     fn count_fields(&self) -> usize {
         self.fields().into_iter().count()
     }
@@ -49,31 +48,37 @@ pub trait EntryData {
     ///
     /// The default implementation iterates over all fields and returns the first match.
     fn get_field<'r>(&'r self, field_name: &str) -> Option<FieldValueRef<'r>> {
-        for (key, val) in self.fields() {
-            if field_name < key.inner() {
-                return None;
-            }
-
-            if field_name == key.inner() {
-                return Some(val);
-            }
-        }
-        None
+        self.fields()
+            .into_iter()
+            .find(|(k, _)| k.inner() == field_name)
+            .map(|(_, v)| v)
     }
 
     /// Get the value of the field as a string.
+    ///
+    /// The default implementation calls [`get_field`](Self::get_field) and
+    /// [`FieldValueRef::inner`].
     fn get_field_str<'r>(&'r self, field_name: &str) -> Option<&'r str> {
         self.get_field(field_name).map(|k| k.inner())
     }
 
     /// Check if a given field exists.
     ///
-    /// The default implementation checks that `get_field` returns `Some(_)`.
+    /// The default implementation checks that [`get_field`](Self::get_field) returns `Some(_)`.
     fn contains_field(&self, field_name: &str) -> bool {
         self.get_field(field_name).is_some()
     }
 
-    /// Validate that this entry data implementation is correct.
+    /// Validate that this entry data instance is correct.
+    ///
+    /// The default implementation checks:
+    ///
+    /// - That the fields returned by [`fields`](Self::fields) are sorted by key.
+    /// - That the entry type and field keys and values satisfy the appropriate rules.
+    ///
+    /// This method is primarily useful when loading one of the archived formats from raw bytes. The
+    /// archived formats typically check the byte buffer for memory safety but not that the
+    /// resulting types are correct or that the fields are sorted.
     fn validate_untrusted(&self) -> Result<(), DataError> {
         if !self.fields().into_iter().is_sorted_by_key(|(k, _)| k) {
             return Err(DataError::Unsorted);
@@ -92,24 +97,24 @@ pub trait EntryData {
 
 /// Serialize entry data as raw bytes in the given format.
 pub fn archive<A: Archive + ?Sized, D: EntryData>(data: D) -> Box<[u8]> {
-    A::into_archive(A::from_entry_data(data))
+    A::into_boxed_bytes(A::from_entry_data(data))
 }
 
 /// Types that can be converted to raw bytes, which can be deserialized from raw bytes, and for
 /// which data can be immutably read from a byte slice.
-/// 
+///
 /// # Safety
 ///
 /// The implementation is required to guarantee that, if the [`validate`](Self::validate) function
 /// returns ok, or for bytes produced by [`as_bytes`](Self::as_bytes) or
-/// [`into_archive`](Self::into_archive), that the [`load_unchecked`](Self::load_unchecked) and
+/// [`into_boxed_bytes`](Self::into_boxed_bytes), that the [`load_unchecked`](Self::load_unchecked) and
 /// [`access_unchecked`](Self::access_unchecked) functions must not result in undefined behaviour.
 pub unsafe trait Archive: ToOwned {
     /// Obtain the underlying bytes.
     fn as_bytes(&self) -> &[u8];
 
     /// Convert this type into an owned byte slice.
-    fn into_archive(archive: Self::Owned) -> Box<[u8]>;
+    fn into_boxed_bytes(archive: Self::Owned) -> Box<[u8]>;
 
     /// Check that a byte slice is in a valid format accepted by this type.
     fn validate(bytes: &[u8]) -> Result<(), AccessError>;

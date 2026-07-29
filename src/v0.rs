@@ -6,25 +6,22 @@
 //!
 //! The data is stored as a sequence of blocks.
 //! ```txt
-//! HEADER, TYPE, DATA1, DATA2, ...
+//! HEADER | TYPE | DATA*
 //! ```
-//! The `HEADER` is a single byte which is `0` and the `TYPE` consists of
+//! The `HEADER` is a single byte which is `0`.
+//! The `TYPE` consists of
 //! ```txt
-//! [entry_type_len: u8, entry_type: [u8..]]
+//! | entry_type_len | entry_type |
+//! | u8             | str        |
 //! ```
-//! Here, `entry_type_len` is the length of `entry_type`, which has length at most [`u8::MAX`].
+//! Here, `entry_type_len` is the length of `entry_type`.
 //! Then, each block `DATA` is of the form
 //! ```txt
-//! [key_len: u8, value_len: u16, key: [u8..], value: [u8..]]
+//! | key_len | value_len | key | value |
+//! | u8      | u16       | str | str   |
 //! ```
-//! where `key_len` is the length of the first `key` segment, and the `value_len` is
-//! the length of the `value` segment. Necessarily, `key` and `value` have lengths at
-//! most [`u8::MAX`] and [`u16::MAX`] respectively.
-//!
-//! `value_len` is encoded in little endian format.
-//!
-//! The `DATA...` are sorted by `key` and each `key` and `entry_type` must be ASCII lowercase. The
-//! `entry_type` can be any valid UTF-8.
+//! where `key_len` is the length of the first `key` segment, and the `value_len` is the length of the `value` segment.
+//! The `value_len` is encoded as little-endian bytes.
 use std::str::{from_utf8, from_utf8_unchecked};
 
 use crate::error::AccessError;
@@ -139,7 +136,7 @@ unsafe impl Archive for ArchivedEntryData {
 
     /// Convert into boxed bytes.
     #[inline]
-    fn into_archive(archive: Box<Self>) -> Box<[u8]> {
+    fn into_boxed_bytes(archive: Box<Self>) -> Box<[u8]> {
         unsafe { Box::from_raw(Box::into_raw(archive) as *mut [u8]) }
     }
 }

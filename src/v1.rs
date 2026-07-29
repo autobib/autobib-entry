@@ -251,7 +251,7 @@ unsafe impl Archive for ArchivedEntryData {
 
     /// Convert into boxed bytes.
     #[inline]
-    fn into_archive(archive: Box<Self>) -> Box<[u8]> {
+    fn into_boxed_bytes(archive: Box<Self>) -> Box<[u8]> {
         unsafe { Box::from_raw(Box::into_raw(archive) as *mut [u8]) }
     }
 }
