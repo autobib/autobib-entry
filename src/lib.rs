@@ -10,7 +10,6 @@
 pub mod data;
 pub mod error;
 pub mod ident;
-mod normalize;
 
 #[cfg(feature = "v0")]
 pub mod v0;
@@ -21,5 +20,4 @@ pub mod v1;
 pub use {
     data::{Archive, EntryData},
     error::{AccessError, DataError},
-    normalize::{Normalization, Normalize},
 };

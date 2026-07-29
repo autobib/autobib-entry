@@ -4,14 +4,16 @@ use serde::{Deserialize, de::Error};
 
 use regex::Regex;
 
+use super::{
+    EntryData,
+    normalize::{Normalize, normalize_whitespace_str},
+};
 use crate::{
-    data::EntryData,
     error::{AccessError, DataError},
     ident::{
         EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef,
         StandardEntryType, StandardFieldKey,
     },
-    normalize::{Normalize, normalize_whitespace_str},
 };
 
 /// An [`EntryData`] implementation which supports performant addition and deletion of fields.

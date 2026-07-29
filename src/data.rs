@@ -12,6 +12,7 @@
 //! - [`EntryDataSerializer`]: a wrapper around an [`EntryData`] implementation which implements
 //!   [`serde::Serialize`] to allow serialization into other serde-compatible formats.
 mod mutable;
+mod normalize;
 
 use std::ops::Deref;
 
@@ -25,7 +26,10 @@ use crate::{
     ident::{EntryType, EntryTypeRef, FieldKey, FieldKeyRef, FieldValue, FieldValueRef},
 };
 
-pub use mutable::{ConflictResolved, EntryEditCommand, MutableEntryData, SetFieldCommand};
+pub use self::{
+    mutable::{ConflictResolved, EntryEditCommand, MutableEntryData, SetFieldCommand},
+    normalize::{Normalization, Normalize},
+};
 
 /// This trait represents types which encapsulate the data content of a single BibTeX entry.
 pub trait EntryData {
