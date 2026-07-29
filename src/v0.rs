@@ -61,39 +61,6 @@ pub(crate) type EntryTypeHeader = u8;
 #[repr(transparent)]
 pub struct ArchivedEntryData([u8]);
 
-// pub fn archive<D: EntryData + ?Sized>(entry_data: &D) -> Box<[u8]> {
-//     let raw_len = 1  // the size of the binary version header
-//             + (1 + entry_data.entry_type().inner().len()) // the entry type, plus the 1-byte header
-//             + entry_data // the key value pairs, plus the 3-byte header
-//                 .fields()
-//                 .into_iter()
-//                 .map(|(k, v)| 3 + k.inner().len() + v.inner().len())
-//                 .sum::<usize>();
-
-//     let mut data = Vec::with_capacity(raw_len);
-
-//     data.push(0);
-
-//     let entry_type = entry_data.entry_type();
-//     let entry_type_len = EntryTypeHeader::try_from(entry_type.inner().len()).unwrap();
-//     data.push(entry_type_len);
-//     data.extend(entry_type.inner().as_bytes());
-
-//     for (key, value) in entry_data.fields() {
-//         let key_len = KeyHeader::try_from(key.inner().len()).unwrap();
-//         let value_len = ValueHeader::try_from(value.inner().len())
-//             .unwrap()
-//             .to_le_bytes();
-
-//         data.push(key_len);
-//         data.extend(value_len);
-//         data.extend(key.inner().as_bytes());
-//         data.extend(value.inner().as_bytes());
-//     }
-
-//     data.into_boxed_slice()
-// }
-
 impl ToOwned for ArchivedEntryData {
     type Owned = Box<Self>;
 
