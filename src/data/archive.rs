@@ -71,7 +71,8 @@ pub fn archive<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
     );
 
     // initialize as zeroed; we will write non-sequentially
-    let mut buf: Box<[u8]> = vec![0; raw_data_len].into_boxed_slice();
+    let buf = Box::new_zeroed_slice(raw_data_len);
+    let mut buf = unsafe { buf.assume_init() };
 
     // HEADER
     unsafe {
