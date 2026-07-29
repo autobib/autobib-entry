@@ -2,11 +2,11 @@
 //!
 //! ## Memory format
 //!
-//! All `u32` and `u64` values are stored in little-endian order.
+//! All `u32` values are stored in little-endian order.
 //! ```text
-//! | <- HEADER                       -> | <- FIELDS                          -> | <- DATA                 -> |
-//! | meta | entry_type_len | num_fields | (key_idx, key_len, val_idx, val_len)* | entry_type.. keys.. vals.. |
-//! | u64  | u32            | u32        | [u32, u32, u32, u32]*                 | str                        |
+//! | <- HEADER      -> | <- TYPE -> | <- FIELDS                          -> | <- DATA                 -> |
+//! | meta | num_fields | (idx, len) | (key_idx, key_len, val_idx, val_len)* | entry_type.. keys.. vals.. |
+//! | u32  | u32        | [u32, u32] | [u32, u32, u32, u32]*                 | str
 //! ```
 //!
 //! ### Format explanation
@@ -16,15 +16,17 @@
 //!     This distinguishes from the old data format used by Autobib which sets the first byte equal to `0`.
 //!     For validity, only the first byte is checked.
 //!     Future versions of this binary format may store additional metadata in the `meta` block.
-//!   - `entry_type_len`: the length (in bytes) of the entry type
 //!   - `num_fields`: the number of `key = {value}` fields
+//! - `TYPE`: pointer to the entry type
+//!   - `idx`: an index into this byte buffer indicating the start of the entry type
+//!   - `len`: the length of the entry type
 //! - `FIELDS`: variable-size metadata for each `key = {value}` field
-//!   - `key_idx`: an index into ths byte buffer indicating the start of the `key`
+//!   - `key_idx`: an index into this byte buffer indicating the start of the `key`
 //!   - `key_len`: the length of the `key`
-//!   - `val_idx`: an index into ths byte buffer indicating the start of the `value`
+//!   - `val_idx`: an index into this byte buffer indicating the start of the `value`
 //!   - `val_len`: the length of the `value`
 //! - `DATA`: a contiguous string storing the raw contents of the entry type, and the field keys and the values.
-//!   The indices in `FIELDS` refer to valid sub-strings of the `DATA` block.
+//!   The pointers in `TYPE` and `FIELDS` refer to valid sub-strings of the `DATA` block.
 //!
 //! ### Format features
 //!
@@ -33,7 +35,7 @@
 //! - The `DATA` block is a continguous Utf-8 string when valid.
 //!   This improves initial validation since we can check Utf-8 validity in a single pass, rather than check validity for each key and value individually (2-3x slower in benchmarks).
 
-use std::{ops::Range, str::from_utf8_unchecked};
+use std::str::from_utf8_unchecked;
 
 const HEADER_LEN: usize = 16;
 const FIELD_LEN: usize = 16;
@@ -65,20 +67,31 @@ pub fn archive<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
     let raw_data_len = data_start + str_total_len;
     assert!(
         raw_data_len < u32::MAX as usize,
-        "Cannot write raw data exceeding 2^32 bytes!"
+        "Cannot write entry data exceeding 2^32 bytes!"
     );
 
     // initialize as zeroed; we will write non-sequentially
     let mut buf: Box<[u8]> = vec![0; raw_data_len].into_boxed_slice();
 
     // HEADER
-    buf[0] = 1; // recall other values are zeroed
-    buf[8..12].copy_from_slice(&(entry_type_bytes.len() as u32).to_le_bytes());
-    buf[12..16].copy_from_slice(&(data.count_fields() as u32).to_le_bytes());
+    unsafe {
+        *buf.get_unchecked_mut(0) = 1; // recall other values are zeroed
+        buf.get_unchecked_mut(4..8)
+            .copy_from_slice(&(num_fields as u32).to_le_bytes());
+        buf.get_unchecked_mut(8..12)
+            .copy_from_slice(&(data_start as u32).to_le_bytes()); // we always write entry type
+        // first
+        buf.get_unchecked_mut(12..16)
+            .copy_from_slice(&(entry_type_bytes.len() as u32).to_le_bytes());
+    }
 
     // first, the entry data
-    let mut offset = data_start;
-    buf[offset..offset + entry_type_bytes.len()].copy_from_slice(entry_type_bytes);
+    let mut offset = data_start; // a cursor for the current position within the buffer up to which
+    // we have written
+    unsafe {
+        buf.get_unchecked_mut(offset..offset + entry_type_bytes.len())
+            .copy_from_slice(entry_type_bytes)
+    };
     offset = data_start + entry_type_bytes.len();
 
     // then all of the fields
@@ -86,17 +99,25 @@ pub fn archive<D: EntryData + ?Sized>(data: &D) -> Box<[u8]> {
         let field_start = HEADER_LEN + FIELD_LEN * idx;
 
         // write the field key data and the field key
-        buf[field_start..field_start + 4].copy_from_slice(&(offset as u32).to_le_bytes());
-        buf[field_start + 4..field_start + 8]
-            .copy_from_slice(&(k.inner().len() as u32).to_le_bytes());
-        buf[offset..offset + k.inner().len()].copy_from_slice(k.inner().as_bytes());
+        unsafe {
+            buf.get_unchecked_mut(field_start..field_start + 4)
+                .copy_from_slice(&(offset as u32).to_le_bytes());
+            buf.get_unchecked_mut(field_start + 4..field_start + 8)
+                .copy_from_slice(&(k.inner().len() as u32).to_le_bytes());
+            buf.get_unchecked_mut(offset..offset + k.inner().len())
+                .copy_from_slice(k.inner().as_bytes());
+        }
         offset += k.inner().len();
 
         // write the field value data and the field value
-        buf[field_start + 8..field_start + 12].copy_from_slice(&(offset as u32).to_le_bytes());
-        buf[field_start + 12..field_start + 16]
-            .copy_from_slice(&(v.inner().len() as u32).to_le_bytes());
-        buf[offset..offset + v.inner().len()].copy_from_slice(v.inner().as_bytes());
+        unsafe {
+            buf.get_unchecked_mut(field_start + 8..field_start + 12)
+                .copy_from_slice(&(offset as u32).to_le_bytes());
+            buf.get_unchecked_mut(field_start + 12..field_start + 16)
+                .copy_from_slice(&(v.inner().len() as u32).to_le_bytes());
+            buf.get_unchecked_mut(offset..offset + v.inner().len())
+                .copy_from_slice(v.inner().as_bytes());
+        }
         offset += v.inner().len();
     }
 
@@ -119,7 +140,7 @@ impl ArchivedEntryData {
     /// Check that raw bytes are in the memory format defined in the module level documentation.
     pub fn validate(bytes: &[u8]) -> Result<(), AccessError> {
         // checking header
-        let Some((&[1, _, _, _, _, _, _, _, e0, e1, e2, e3, l0, l1, l2, l3], _)) =
+        let Some((&[1, 0, 0, 0, l0, l1, l2, l3, _, _, _, _, e0, e1, e2, e3], _)) =
             bytes.split_first_chunk::<HEADER_LEN>()
         else {
             return Err(AccessError::InvalidHeader);
@@ -132,6 +153,7 @@ impl ArchivedEntryData {
         let Some(data) = bytes.get(data_start..) else {
             return Err(AccessError::IncompleteFields);
         };
+        // now it is guaranteed that bytes.len() >= HEADER_LEN + FIELD_LEN * num_fields
 
         // checking string data is valid utf8
         let data_str = std::str::from_utf8(data)?;
@@ -148,29 +170,29 @@ impl ArchivedEntryData {
                     .split_first_chunk::<FIELD_LEN>()
                     .unwrap_unchecked()
             };
-            let (key_idx, key_len, val_idx, val_len) = FieldAccess(field_bytes).parts();
+            let (key, val) = FieldAccess(field_bytes).parts();
 
             // check that the indices are contiguous and correspond to valid char boundaries
-            if kv_data_start != key_idx {
+            if kv_data_start != key.idx as usize {
                 return Err(AccessError::InvalidIndex(idx));
             }
 
-            if kv_data_start + key_len != val_idx {
+            if kv_data_start + key.len as usize != val.idx as usize {
                 return Err(AccessError::InvalidIndex(idx));
             }
 
-            if !data_str.is_char_boundary(key_idx - data_start) {
+            if !data_str.is_char_boundary(key.idx as usize - data_start) {
                 return Err(AccessError::InvalidStrOffset(idx));
             }
 
-            if !data_str.is_char_boundary(val_idx - data_start) {
+            if !data_str.is_char_boundary(val.idx as usize - data_start) {
                 return Err(AccessError::InvalidStrOffset(idx));
             }
 
-            kv_data_start = kv_data_start + key_len + val_len;
+            kv_data_start = kv_data_start + key.len as usize + val.len as usize;
         }
 
-        // we should end at bytes
+        // no trailing bytes
         if kv_data_start != bytes.len() {
             return Err(AccessError::TrailingBytes(kv_data_start));
         }
@@ -179,6 +201,7 @@ impl ArchivedEntryData {
     }
 
     /// Load the provided byte buffer, first checking that the underlying bytes are valid.
+    #[inline]
     pub fn load(bytes: Box<[u8]>) -> Result<Box<Self>, AccessError> {
         Self::validate(&bytes)?;
         unsafe { Ok(Self::load_unchecked(bytes)) }
@@ -193,12 +216,14 @@ impl ArchivedEntryData {
     ///
     /// - [`Self::validate`] returns ok.
     /// - The bytes were produced by a call to [`archive`] or [`Self::as_bytes`].
+    #[inline]
     pub unsafe fn load_unchecked(buf: Box<[u8]>) -> Box<Self> {
         unsafe { Box::from_raw(Box::into_raw(buf) as *mut ArchivedEntryData) }
     }
 
     /// Access data from the provided byte buffer without any copying or parsing, first
     /// checking that the underlying bytes are valid.
+    #[inline]
     pub fn access(bytes: &[u8]) -> Result<&Self, AccessError> {
         Self::validate(bytes)?;
         unsafe { Ok(Self::access_unchecked(bytes)) }
@@ -214,34 +239,74 @@ impl ArchivedEntryData {
     ///
     /// - [`Self::validate`] returns ok.
     /// - The bytes were produced by a call to [`archive`] or [`Self::as_bytes`].
+    #[inline]
     pub unsafe fn access_unchecked(b: &[u8]) -> &Self {
         unsafe { std::mem::transmute(b) }
     }
 
     /// Construct the byte representation from any entry data implementation.
+    #[inline]
     pub fn from_entry_data<D: EntryData + ?Sized>(data: &D) -> Box<ArchivedEntryData> {
         unsafe { ArchivedEntryData::load_unchecked(archive(data)) }
     }
 }
 
-/// Layout data for the byte buffer, as read from the header.
-struct RawLayout {
-    entry_type_len: usize,
-    num_fields: usize,
-    data_start: usize,
+#[derive(Debug, Clone, Copy)]
+struct StrPtr {
+    idx: u32,
+    len: u32,
 }
 
-impl RawLayout {
-    /// Get the range in the data buffer corresponding to the entry type.
+impl StrPtr {
     #[inline]
-    fn entry_type_range(&self) -> Range<usize> {
-        self.data_start..self.data_start + self.entry_type_len
+    unsafe fn read_unchecked<'r>(self, data: &'r [u8]) -> &'r str {
+        let idx = self.idx as usize;
+        let len = self.len as usize;
+        unsafe { from_utf8_unchecked(data.get_unchecked(idx..idx + len)) }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RawHeader {
+    #[expect(unused)]
+    meta: [u8; 4],
+    num_fields: u32,
+}
+
+impl RawHeader {
+    #[inline]
+    unsafe fn load_unchecked(buf: &[u8]) -> Self {
+        let &[m0, m1, m2, m3, l0, l1, l2, l3] =
+            unsafe { buf.get_unchecked(0..8).as_array::<8>().unwrap_unchecked() };
+        let meta = [m0, m1, m2, m3];
+        let num_fields = u32::from_le_bytes([l0, l1, l2, l3]);
+        Self { meta, num_fields }
     }
 
-    /// Get the subslice corresponding to the field metadata.
     #[inline]
-    fn all_fields_range(&self) -> Range<usize> {
-        HEADER_LEN..self.data_start
+    unsafe fn read_fields_unchecked(self, buf: &[u8]) -> &[[u8; FIELD_LEN]] {
+        unsafe {
+            buf.get_unchecked(HEADER_LEN..HEADER_LEN + FIELD_LEN * self.num_fields as usize)
+                .as_chunks_unchecked()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RawType {
+    entry_type: StrPtr,
+}
+
+impl RawType {
+    #[inline]
+    unsafe fn load_unchecked(buf: &[u8]) -> Self {
+        let &[i0, i1, i2, i3, l0, l1, l2, l3] =
+            unsafe { buf.get_unchecked(8..16).as_array::<8>().unwrap_unchecked() };
+        let idx = u32::from_le_bytes([i0, i1, i2, i3]);
+        let len = u32::from_le_bytes([l0, l1, l2, l3]);
+        Self {
+            entry_type: StrPtr { idx, len },
+        }
     }
 }
 
@@ -253,7 +318,7 @@ impl FieldAccess {
     /// Split the field into its constituent `usize` parts: `key_idx`, `key_len`, `val_id`, and
     /// `val_len`.
     #[inline]
-    fn parts(self) -> (usize, usize, usize, usize) {
+    fn parts(self) -> (StrPtr, StrPtr) {
         let [
             ki0,
             ki1,
@@ -273,10 +338,14 @@ impl FieldAccess {
             vl3,
         ] = self.0;
         (
-            u32::from_le_bytes([ki0, ki1, ki2, ki3]) as usize,
-            u32::from_le_bytes([kl0, kl1, kl2, kl3]) as usize,
-            u32::from_le_bytes([vi0, vi1, vi2, vi3]) as usize,
-            u32::from_le_bytes([vl0, vl1, vl2, vl3]) as usize,
+            StrPtr {
+                idx: u32::from_le_bytes([ki0, ki1, ki2, ki3]),
+                len: u32::from_le_bytes([kl0, kl1, kl2, kl3]),
+            },
+            StrPtr {
+                idx: u32::from_le_bytes([vi0, vi1, vi2, vi3]),
+                len: u32::from_le_bytes([vl0, vl1, vl2, vl3]),
+            },
         )
     }
 
@@ -287,75 +356,58 @@ impl FieldAccess {
     /// The data buffer must be valid for the field from which this struct was constructed.
     #[inline]
     unsafe fn access_in<'r>(self, data: &'r [u8]) -> (FieldKeyRef<'r>, FieldValueRef<'r>) {
-        let (key_idx, key_len, val_idx, val_len) = self.parts();
+        let (key_ptr, val_ptr) = self.parts();
         unsafe {
-            let key_raw = data.get_unchecked(key_idx..key_idx + key_len);
-            let val_raw = data.get_unchecked(val_idx..val_idx + val_len);
             (
-                FieldKeyRef(from_utf8_unchecked(key_raw)),
-                FieldValueRef(from_utf8_unchecked(val_raw)),
+                FieldKeyRef(key_ptr.read_unchecked(data)),
+                FieldValueRef(val_ptr.read_unchecked(data)),
             )
         }
     }
 }
 
 impl ArchivedEntryData {
-    /// Obtain the layout from the header.
+    /// Obtain the field metadata as a slice of `Field`s.
     #[inline]
-    fn layout(&self) -> RawLayout {
-        let &[e0, e1, e2, e3, n0, n1, n2, n3] = unsafe {
-            self.0
-                .get_unchecked(8..16)
-                .as_array::<8>()
-                .unwrap_unchecked()
-        };
-        let entry_type_len = u32::from_le_bytes([e0, e1, e2, e3]) as usize;
-        let num_fields = u32::from_le_bytes([n0, n1, n2, n3]) as usize;
-        let data_start = HEADER_LEN + FIELD_LEN * num_fields;
-        RawLayout {
-            entry_type_len,
-            num_fields,
-            data_start,
-        }
+    fn raw_fields(&self) -> &[[u8; FIELD_LEN]] {
+        unsafe { RawHeader::load_unchecked(&self.0).read_fields_unchecked(&self.0) }
     }
 
     /// Obtain the field metadata as a slice of `Field`s.
     #[inline]
-    fn raw_fields(&self) -> &[[u8; FIELD_LEN]] {
-        let ly = self.layout();
+    fn raw_entry_type(&self) -> &str {
         unsafe {
-            self.0
-                .get_unchecked(ly.all_fields_range())
-                .as_chunks_unchecked()
+            RawType::load_unchecked(&self.0)
+                .entry_type
+                .read_unchecked(&self.0)
         }
+    }
+
+    #[inline]
+    fn num_fields(&self) -> usize {
+        unsafe { RawHeader::load_unchecked(&self.0).num_fields as _ }
     }
 }
 
 impl EntryData for ArchivedEntryData {
     fn fields(&self) -> impl IntoIterator<Item = (FieldKeyRef<'_>, FieldValueRef<'_>)> {
-        let rf = self.raw_fields();
         unsafe {
-            rf.iter()
+            self.raw_fields()
+                .iter()
                 .map(|chunk| FieldAccess(*chunk).access_in(&self.0))
         }
     }
 
     fn entry_type(&self) -> EntryTypeRef<'_> {
-        let ly = self.layout();
-        unsafe {
-            EntryTypeRef(from_utf8_unchecked(
-                self.0.get_unchecked(ly.entry_type_range()),
-            ))
-        }
+        EntryTypeRef(self.raw_entry_type())
     }
 
     fn count_fields(&self) -> usize {
-        self.layout().num_fields
+        self.num_fields()
     }
 
     fn get_field<'r>(&'r self, field_name: &str) -> Option<FieldValueRef<'r>> {
-        let ly = self.layout();
-        if ly.num_fields <= 6 {
+        if self.num_fields() <= 6 {
             self.fields()
                 .into_iter()
                 .find(|(k, _)| k.inner() == field_name)
@@ -481,9 +533,9 @@ mod tests {
         assert_eq!(
             archived.as_bytes(),
             [
-                1, 0, 0, 0, 0, 0, 0, 0, // meta
-                4, 0, 0, 0, // entry length 4
+                1, 0, 0, 0, // meta
                 4, 0, 0, 0, // 4 fields
+                80, 0, 0, 0, 4, 0, 0, 0, // entry type
                 84, 0, 0, 0, 6, 0, 0, 0, 90, 0, 0, 0, 10, 0, 0, 0, // field 1
                 100, 0, 0, 0, 7, 0, 0, 0, 107, 0, 0, 0, 23, 0, 0, 0, // field 2
                 130, 0, 0, 0, 5, 0, 0, 0, 135, 0, 0, 0, 17, 0, 0, 0, // field 3
@@ -509,9 +561,9 @@ mod tests {
         assert_eq!(
             archived.as_bytes(),
             [
-                1, 0, 0, 0, 0, 0, 0, 0, // meta
-                7, 0, 0, 0, // entry length 7
+                1, 0, 0, 0, // meta
                 0, 0, 0, 0, // 0 fields
+                16, 0, 0, 0, 7, 0, 0, 0, // entry type
                 b'a', b'r', b't', b'i', b'c', b'l', b'e'
             ]
         );
