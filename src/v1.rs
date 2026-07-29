@@ -14,8 +14,7 @@
 //! ### Format explanation
 //!
 //! - `HEADER`: fixed-size metadata for the data
-//!   - `meta`: a currently unused metadata block, currently set as little-endian bytes to `[1 0 0 0 0 0 0 0]`.
-//!     This distinguishes from the old data format used by Autobib which sets the first byte equal to `0`.
+//!   - `meta`: a currently unused metadata block, currently set as little-endian bytes to `[1 0 0 0]`.
 //!     For validity, only the first byte is checked.
 //!     Future versions of this binary format may store additional metadata in the `meta` block.
 //!   - `num_fields`: the number of `key = {value}` fields
@@ -36,6 +35,10 @@
 //!   This means that specific `key = {value}` pairs can be found efficiently using [`binary_search_by_key`](https://doc.rust-lang.org/std/primitive.slice.html#method.binary_search_by_key).
 //! - The `DATA` block is a continguous Utf-8 string when valid.
 //!   This improves initial validation since we can check Utf-8 validity in a single pass, rather than check validity for each key and value individually (2-3x slower in benchmarks).
+//! - The values do not need to strictly be contiguous, as long as the gaps in between are padded by null bytes.
+//!   For example, this means that fields can be deleted by zeroing-out the higher field keys and overwriting `num_fields`.
+//!   Of course, extra space introduces additional memory and validation overhead and therefore should be avoided if possible.
+//!   The default serialized format will pack the (key, value) pairs contiguously in the same order as specified by the fields.
 
 use std::{borrow::ToOwned, str::from_utf8_unchecked};
 

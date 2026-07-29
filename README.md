@@ -7,10 +7,13 @@ This crate defines zero-copy disk formats for entry data.
 This allows very efficient access and deserialization of key values directly from disk, without requiring any parsing or allocations (beyond allocating space for the buffer itself).
 The main `v1` implementation here is more compact and has faster reads than a comparable `rkyv`-derived implementation.
 It also has the benefit of being fixed and transparently documented.
+
 There are multiple formats:
 
 - [`v1`](#v1-memory-layout) - current format
 - [`v0`](#v0-memory-layout) - legacy format used by Autobib databases `<= 4`, versions `< 0.7.0` (slightly more compact, but with much slower reads, in particular `O(n)` field reads)
+
+The format of the data can be determined by the first byte (value `0` corresponds to `v0`, etc.)
 
 ## `v1` memory layout
 
@@ -25,8 +28,7 @@ All `u32` are stored as little-endian bytes.
 ### Format explanation
 
 - `HEADER`: fixed-size metadata for the data
-  - `meta`: a currently unused metadata block, currently set as little-endian bytes to `[1 0 0 0 0 0 0 0]`.
-    This distinguishes from the old data format used by Autobib which sets the first byte equal to `0`.
+  - `meta`: a currently unused metadata block, currently set as little-endian bytes to `[1 0 0 0]`.
     For validity, only the first byte is checked.
     Future versions of this binary format may store additional metadata in the `meta` block.
   - `num_fields`: the number of `key = {value}` fields
@@ -50,9 +52,6 @@ All `u32` are stored as little-endian bytes.
 - The `u32` reads are all aligned.
   This improves read performance substantially, as long as the underlying byte buffer is `u32`-aligned.
   The field metadata is also `u128`-aligned, though this is not currently exploited by the implementation.
-
-### Format flexibility
-
 - The values do not need to strictly be contiguous, as long as the gaps in between are padded by null bytes.
   For example, this means that fields can be deleted by zeroing-out the higher field keys and overwriting `num_fields`.
   Of course, extra space introduces additional memory and validation overhead and therefore should be avoided if possible.
@@ -66,25 +65,13 @@ All `u32` are stored as little-endian bytes.
 - Allow 'unpacked' versions with flag (packed default), in which case need to check validity of char boundaries on both sides.
 - Add basic in-place mutation.
 
-# `v0`
-
-This is the v0 data format originally used by Autobib.
-
 ## `v0` memory layout
 
-The first byte is a marker byte.
-Depending on the marker byte, the format is as follows.
-
-## Marker byte `0`
 The data is stored as a sequence of blocks.
 ```txt
 HEADER, TYPE, DATA1, DATA2, ...
 ```
-The `HEADER` consists of
-```txt
-version: u8,
-```
-and the `TYPE` consists of
+The `HEADER` is a single byte which is `0` and the `TYPE` consists of
 ```txt
 [entry_type_len: u8, entry_type: [u8..]]
 ```

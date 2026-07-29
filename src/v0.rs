@@ -4,19 +4,11 @@
 //!
 //! ## Format
 //!
-//! The first byte is a marker byte.
-//! Depending on the marker byte, the format is as follows.
-//!
-//! ## Marker byte `0`
 //! The data is stored as a sequence of blocks.
 //! ```txt
 //! HEADER, TYPE, DATA1, DATA2, ...
 //! ```
-//! The `HEADER` consists of
-//! ```txt
-//! version: u8,
-//! ```
-//! and the `TYPE` consists of
+//! The `HEADER` is a single byte which is `0` and the `TYPE` consists of
 //! ```txt
 //! [entry_type_len: u8, entry_type: [u8..]]
 //! ```
